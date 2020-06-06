@@ -12,6 +12,11 @@ from numpy import ma
 class EVImap():
     def __init__(self, fname, rng=None):
         """
+        Parameters
+        ----------
+        fname : str
+            Name of NETCDF4 file to load.
+        rng : np.random.RandomState, None
         """
         
         self.fname = fname
@@ -40,6 +45,79 @@ class EVImap():
         self.ydim = self.ds['ydim'][:]
 
         self.nonEmptyIx = ~self.evi.mask.all(0).ravel()
+
+    def sample_d(self, n_sample,
+                 return_pairs=False,
+                 rel_length_scale=5):
+        """Sample distances between pairs of pixels with preferential sampling
+        for nearby pixels using Gaussian.
+
+        Parameters
+        ----------
+        n_sample : int
+        return_pairs : bool, False
+        rel_length_scale : float, 5.
+
+        Returns
+        -------
+        ndarray
+            Distances.
+        list of tuples (optional)
+            Pairs of pixels for which distances were calculated.
+        """
+
+        xdim = self.xdim
+        ydim = self.ydim
+        randij = []
+        dmat = np.zeros(n_sample)
+      
+        counter = 0
+        while counter<n_sample:
+            # select two random pixels to compare
+            ij1 = self.rng.randint(ydim.size), self.rng.randint(xdim.size)
+            # select pixel within a typical distance from the first pixel
+            ij2 = (int(self.rng.normal(loc=ij1[0], scale=ydim.size/rel_length_scale))%ydim.size,
+                   int(self.rng.normal(loc=ij1[1], scale=xdim.size/rel_length_scale))%xdim.size)
+
+            if ij1!=ij2:
+                dmat[counter] = np.sqrt((ydim[ij1[0]] - ydim[ij2[0]])**2 +
+                                        (xdim[ij1[1]] - xdim[ij2[1]])**2)
+
+                randij.append((ij1,ij2))
+                counter += 1 
+        
+        if return_pairs:
+            return dmat, randij
+        return dmat
+
+    def sample_corr(self, pairij=None, return_pairs=False):
+        """Calculate correlation through time between pairs of pixels.
+
+        Parameters
+        ----------
+        pairij : list of tuples
+        return_pairs : bool, False
+
+        Returns
+        -------
+        ndarray
+            Sampled correlations including nan.
+        """
+        
+        if pairij is None:
+            raise NotImplementedError
+
+        C = np.zeros(len(pairij))
+        for i, (ij1, ij2) in enumerate(pairij):
+            # normalized by the number of nonzero entries
+            T = ( ~(self.evi.mask[:,ij1[0],ij1[1]] | self.evi.mask[:,ij2[0],ij2[1]]) ).sum()
+            if T:
+                C[i] = self.evi[:,ij1[0],ij1[1]].dot(self.evi[:,ij2[0],ij2[1]]) / T 
+                C[i] -= self.evi[:,ij1[0],ij1[1]].mean() * self.evi[:,ij2[0],ij2[1]].mean()
+            # if no nonzero entries, then set to nan
+            else:
+                C[i] = np.nan
+        return C
 
     def d(self, ix=None):
         """Condensed matrix of distances between pixels. By default, only
@@ -169,17 +247,18 @@ class EVImap():
         # only consider all boxes that fill the entire factor x factor area
         for i in range(Ly//factor):
             for j in range(Lx//factor):
-                r = self.reliability[:,i*factor:(i+1)*factor,j*factor:(j+1)*factor].reshape(T,factor**2)
-                ix = (r==0).any(1)  # indicates where at least one pixel is reliable
+                # to use below
+                sl = np.s_[:,i*factor:(i+1)*factor,j*factor:(j+1)*factor]
 
-                # take averaged evi only over non-empty pixels
-                evi[ix,i,j] = self.evi[ix,i*factor:(i+1)*factor,j*factor:(j+1)*factor].mean()
-                
+                r = self.reliability[sl]
+                ix = (r==0).any(1).any(1)  # indicates where at least one pixel is reliable
                 # reliability is by default 0 unless all pixels were unreliable
                 reliability[~ix,i,j] = 1
-                
+
+                # take averaged evi only over non-empty pixels and only over space (not time)
+                evi[:,i,j] = self.evi[sl].mean(1).mean(1)
                 # if no reliable pixels, then mask must be set
-                evi.mask[~ix,i,j] = True
+                # evi.mask[~ix,i,j] = True
         
         # some checks
         assert xdim.size==evi.shape[-1]==reliability.shape[-1]
@@ -192,7 +271,7 @@ class EVImap():
         self.reliability = reliability
         self.nonEmptyIx = ~self.evi.mask.all(0).ravel()
 
-    def spatial_corr(self, dmat, C, frac, bins=100):
+    def spatial_corr(self, dmat, C, frac=1, bins=100):
         """Spatial correlation function. This organizes already calculated
         correlation function and distances.
 
@@ -201,7 +280,7 @@ class EVImap():
         dmat : ndarray
             Distances between pixels whose correlations are given in C.
         C : ndarray
-        frac : float
+        frac : float, 1
             Random fraction of elements to sample.
         bins : int or ndarray, 100
             Bins correspond to distances between pixels into which correlation
