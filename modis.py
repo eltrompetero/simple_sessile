@@ -110,10 +110,11 @@ class EVImap():
         C = np.zeros(len(pairij))
         for i, (ij1, ij2) in enumerate(pairij):
             # normalized by the number of nonzero entries
-            T = ( ~(self.evi.mask[:,ij1[0],ij1[1]] | self.evi.mask[:,ij2[0],ij2[1]]) ).sum()
+            notmaskix = ~(self.evi.mask[:,ij1[0],ij1[1]] | self.evi.mask[:,ij2[0],ij2[1]])
+            T = notmaskix.sum()
             if T:
                 C[i] = self.evi[:,ij1[0],ij1[1]].dot(self.evi[:,ij2[0],ij2[1]]) / T 
-                C[i] -= self.evi[:,ij1[0],ij1[1]].mean() * self.evi[:,ij2[0],ij2[1]].mean()
+                C[i] -= self.evi[notmaskix,ij1[0],ij1[1]].mean() * self.evi[notmaskix,ij2[0],ij2[1]].mean()
             # if no nonzero entries, then set to nan
             else:
                 C[i] = np.nan
@@ -213,7 +214,7 @@ class EVImap():
 
         return C
 
-    def coarse_grain_xy(self, factor=2):
+    def coarse_grain_xy(self, factor=2, fun='mean'):
         """Coarse grain spatial resolution by given factor. There are multiple
         ways to coarse grain in real space. We will simply take the average of
         the visible pixels within a box of dimension factor x factor.
@@ -221,6 +222,8 @@ class EVImap():
         Parameters
         ----------
         factor: int, 2
+        fun : str, 'mean'
+            Function with which to coarse-grain, can be 'mean', 'max', 'min'.
 
         Returns
         -------
@@ -255,10 +258,16 @@ class EVImap():
                 # reliability is by default 0 unless all pixels were unreliable
                 reliability[~ix,i,j] = 1
 
-                # take averaged evi only over non-empty pixels and only over space (not time)
-                evi[:,i,j] = self.evi[sl].mean(1).mean(1)
-                # if no reliable pixels, then mask must be set
-                # evi.mask[~ix,i,j] = True
+                # take averaged evi only over non-empty pixels and only over the
+                # two dimensions of space (not time)
+                if fun=='mean':
+                    evi[:,i,j] = self.evi[sl].mean(1).mean(1)
+                elif fun=='max':
+                    evi[:,i,j] = self.evi[sl].max(1).max(1)
+                elif fun=='min':
+                    evi[:,i,j] = self.evi[sl].min(1).min(1)
+                else:
+                    raise NotImplementedError("Unrecognized coarse-graining function.")
         
         # some checks
         assert xdim.size==evi.shape[-1]==reliability.shape[-1]
