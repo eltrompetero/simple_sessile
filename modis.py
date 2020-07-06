@@ -3,9 +3,6 @@
 # Author : Eddie Lee, edlee@santafe.edu
 # ====================================================================================== #
 from .utils import *
-from netCDF4 import Dataset
-from scipy.spatial.distance import pdist
-from numpy import ma
 
 
 
