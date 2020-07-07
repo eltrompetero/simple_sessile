@@ -57,7 +57,7 @@ class Forest2D():
         self.dx = rRange[1] - rRange[0]  # assuming linearly spaced bins
         
         # root areas
-        self.rootR = coeffs['root'] * rRange**(2/3)
+        self.rootR = coeffs['root'] * rRange**(3/4)
         
         # growth
         self.growRate = coeffs['grow'] * rRange**(1/3) / self.dx
@@ -297,6 +297,7 @@ class Forest2D():
                 counter += 1
             self.grow()
             self.kill()
+            self.compete_area()
             
         return nk, self.rRange
 
