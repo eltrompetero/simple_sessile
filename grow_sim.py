@@ -8,11 +8,12 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.collections import PatchCollection
 from scipy.spatial.distance import squareform
+from warnings import warn
 
 
 
 class Forest2D():
-    def __init__(self, L, g0, r_range, coeffs, rng=None):
+    def __init__(self, L, g0, r_range, coeffs, tol=.1, rng=None):
         """
         Parameters
         ----------
@@ -26,14 +27,20 @@ class Forest2D():
             Coefficients controlling how radius gets converted into other 
             measurements via allometric scaling.
             'root' : root length
+        tol : float, .1
+            Max value desirable for rate to probability mapping. This should be as small
+            as possible to keep Poisson assumption accurate, but will slow down
+            simulation when smaller.
         rng : np.random.RandomState, None
         """
         
         assert g0>=1
         assert r_range.min()>0
+        assert 0<tol<1
         
         self.L = L
         self.g0 = g0
+        self.tol = tol
         self.t = 0  # time counter of total age of forest
         
         self.rRange = r_range
@@ -61,19 +68,51 @@ class Forest2D():
         
         # growth
         self.growRate = coeffs['grow'] * rRange**(1/3) / self.dx
-        assert (self.growRate<=1).all(), (self.growRate[self.growRate>1]).max()
         
         # mortality
         self.deathRate = coeffs['death'] * rRange**(-2/3)
-        assert (self.deathRate<=1).all()
 
-    def grow(self, noisy=False, **kwargs):
+    def check_dt(self, dt):
+        """Pre-simulation check that given time step will not break assumption about rates
+        as probabilities from Poisson distribution. This is insufficient for checking
+        competition rates since those are determined during runtime.
+
+        Parameters
+        ----------
+        dt : float
+
+        Returns
+        -------
+        list
+            False values indicate checks were passsed for growth rate and mortality,
+            respectively.
+        """
+        
+        checks = []
+        
+        # growth
+        if not ((self.growRate * dt)<=self.tol).all():
+            checks.append( (self.growRate*dt).max() )
+        else:
+            checks.append(False)
+       
+        # mortality
+        if not ((self.deathRate * dt)<=self.tol).all():
+            checks.append( (self.deathRate*dt).max() )
+        else:
+            checks.append(False)
+
+        return checks
+
+    def grow(self, dt, noisy=False, **kwargs):
         """Grow trees across all size classes for one time step.
         
         This is the wrapper for multiple methods.
         
         Parameters
         ----------
+        dt : float
+            Time step.
         noisy : bool, False
             If True, then use Poisson distribution to sample from rates.
         dt : float, 1.
@@ -81,9 +120,9 @@ class Forest2D():
         """
         
         if noisy:
-            self._grow_noisy(**kwargs)
+            self._grow_noisy(dt, **kwargs)
         else:
-            self._grow_no_noise(**kwargs)
+            self._grow_no_noise(dt, **kwargs)
             
     def _grow_noisy(self, dt=1):
         """Grow trees across all size classes for one time step.
@@ -100,7 +139,7 @@ class Forest2D():
         if len(self.trees[k][0]):
             # typical number of trees from a given size class that should 
             # grow is given by Poisson distribution
-            n = self.rng.poisson(self.growRate[k] * len(self.trees[k][0]))
+            n = self.rng.poisson(self.growRate[k] * dt * len(self.trees[k][0]))
 
             # select n random trees to move up a class
             randix = self._random_trees(k, n)
@@ -113,7 +152,7 @@ class Forest2D():
             if len(self.trees[k][0]):
                 # typical number of trees from a given size class that should 
                 # grow is given by Poisson distribution
-                n = self.rng.poisson(self.growRate[k] * len(self.trees[k][0]))
+                n = self.rng.poisson(self.growRate[k] * dt * len(self.trees[k][0]))
 
                 # select n random trees to move up a class
                 randix = self._random_trees(k, n)
@@ -122,7 +161,7 @@ class Forest2D():
                     self.trees[k+1][1].append( self.trees[k][1].pop(ix-i) )
         
         # grow saplings
-        for i in range(self.rng.poisson(self.g0)):
+        for i in range(self.rng.poisson(self.g0 * dt)):
             self.trees[0][0].append(self.rng.uniform(0, self.L, size=2))
             self.trees[0][1].append(self.t)
             
@@ -143,7 +182,7 @@ class Forest2D():
         if len(self.trees[k][0]):
             # typical number of trees from a given size class that should 
             # grow is given by Poisson distribution
-            n = int(self.growRate[k] * len(self.trees[k][0]))
+            n = int(self.growRate[k] * dt * len(self.trees[k][0]))
 
             # select n random trees to move up a class
             randix = self._random_trees(k, n)
@@ -156,7 +195,7 @@ class Forest2D():
             if len(self.trees[k][0]):
                 # typical number of trees from a given size class that should 
                 # grow is given by Poisson distribution
-                n = int(self.growRate[k] * len(self.trees[k][0]))
+                n = int(self.growRate[k] * dt * len(self.trees[k][0]))
 
                 # select n random trees to move up a class
                 randix = self._random_trees(k, n)
@@ -165,7 +204,7 @@ class Forest2D():
                     self.trees[k+1][1].append(self.trees[k][1].pop(ix-i))
         
         # grow saplings
-        for i in range(self.g0):
+        for i in range(int(self.g0 * dt)):
             self.trees[0][0].append(self.rng.uniform(0, self.L, size=2))
             self.trees[0][1].append(self.t)
             
@@ -182,13 +221,13 @@ class Forest2D():
         
         # apply mortality rate
         for k in range(self.kmax):
-            self._kill_trees(k)
+            self._kill_trees_bin_k(k, dt)
                     
-    def _kill_trees(self, k):
-        """Kill trees in class k. Only to be called by self.kill()."""
+    def _kill_trees_bin_k(self, k, dt=1):
+        """Kill trees in bin k. Only to be called by self.kill()."""
         
         if len(self.trees[k][0]):
-            n = min(self.rng.poisson(self.deathRate[k] * len(self.trees[k][0])),
+            n = min(self.rng.poisson(self.deathRate[k] * dt * len(self.trees[k][0])),
                     len(self.trees[k][0]))
 
             # select n random trees
@@ -226,8 +265,14 @@ class Forest2D():
         xy = self.trees[k][0][randix]
         return randix, xy
 
-    def compete_area(self):
+    def compete_area(self, dt=1, run_checks=True):
         """Play out area competition between trees to kill trees.
+
+        Parameters
+        ----------
+        dt : float, 1.
+            Time step.
+        run_checks : bool, True
         """
         
         # assemble arrays of all tree coordinates and radii
@@ -245,14 +290,23 @@ class Forest2D():
                 counter += 1
         overlapArea = squareform(overlapArea)
 
+        if run_checks:
+            if overlapArea.shape[0]>1000:
+                warn("Many trees in sim. Area competition calculation will be slow.")
+        
+        # turn this overlap area into a competition rate
+        overlapArea *= self.coeffs['area competition'] * dt
+        if run_checks:
+            if (overlapArea > self.tol).any():
+                warn("Competition rate exceeds rate tolerance limit. Recommend shrinking dt.")
+
         # randomly kill trees with rate proportional to overlap with other trees
         counter = 0
         for i, trees in enumerate(self.trees):
             killix = []
             for j in range(len(trees[0])):
-                if (self.rng.rand(r.size) < (overlapArea[counter] * self.coeffs['area competition'])).any():
+                if (self.rng.rand(r.size) < overlapArea[counter]).any():
                     killix.append(j)
-
                 counter += 1
             
             # remove identified trees from the ith tree size class
@@ -273,13 +327,18 @@ class Forest2D():
         
         return np.array([len(i[0]) for i in self.trees])
     
-    def sample(self, n_sample, dt=1):
+    def sample(self, n_sample, dt=1, sample_dt=1):
         """Sample system.
         
         Parameters
         ----------
-        n_sample : int
+        n_sample : int  
+            Total number of samples.
         dt : int, 1
+            Time step for simulation.
+        sample_dt : float, 1.
+            Save sampled spaced out in time by this amount. This means that the total
+            number of iterations is n_sample / dt * sample_dt.
         
         Returns
         -------
@@ -290,14 +349,18 @@ class Forest2D():
         """
         
         nk = np.zeros((n_sample, len(self.trees)))
+        i = 0
         counter = 0
-        for i in range(n_sample*dt):
-            if (i%dt)==0:
+        while counter < n_sample:
+            if (i - counter * sample_dt / dt)>=0:
                 nk[counter] = self.nk()
                 counter += 1
-            self.grow()
-            self.kill()
-            self.compete_area()
+
+            self.grow(dt)
+            self.kill(dt)
+            self.compete_area(dt, run_checks=False)
+
+            i += 1
             
         return nk, self.rRange
 
