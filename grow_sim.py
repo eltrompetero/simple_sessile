@@ -2,13 +2,12 @@
 # Automata compartment model for forest growth.
 # Author : Eddie Lee, edlee@santafe.edu
 # ====================================================================================== #
-import numpy as np
-from numba import njit
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.collections import PatchCollection
 from scipy.spatial.distance import squareform
 from warnings import warn
+from .utils import *
 
 
 
@@ -50,6 +49,7 @@ class Forest2D():
         # each element in trees is for all trees of the same size
         # within each size class we have a list for locations and birth times
         self.trees = [[[],[]] for k in range(self.kmax)]
+        self.N = 0
         
         self.rng = rng or np.random.RandomState()
         
@@ -149,6 +149,7 @@ class Forest2D():
             for i, ix in enumerate(randix):
                 self.trees[k][0].pop(ix-i)
                 self.trees[k][1].pop(ix-i)
+                self.N -= 1
         
         # grow all other trees besides the largest one
         for k in range(self.kmax-2, -1, -1):
@@ -167,6 +168,7 @@ class Forest2D():
         for i in range(self.rng.poisson(self.g0 * dt)):
             self.trees[0][0].append(self.rng.uniform(0, self.L, size=2))
             self.trees[0][1].append(self.t)
+            self.N += 1
             
         self.t += dt
 
@@ -192,6 +194,7 @@ class Forest2D():
             for i, ix in enumerate(randix):
                 self.trees[k][0].pop(ix-i)
                 self.trees[k][1].pop(ix-i)
+                self.N -= 1
         
         # grow all other trees besides the largest one
         for k in range(self.kmax-2, -1, -1):
@@ -210,6 +213,7 @@ class Forest2D():
         for i in range(int(self.g0 * dt)):
             self.trees[0][0].append(self.rng.uniform(0, self.L, size=2))
             self.trees[0][1].append(self.t)
+            self.N += 1
             
         self.t += dt
 
@@ -238,6 +242,7 @@ class Forest2D():
             for i, ix in enumerate(randix):
                 self.trees[k][0].pop(ix-i)
                 self.trees[k][1].pop(ix-i)
+                self.N -= 1
                 
     def _random_trees(self, k, n, return_xy=False):
         """Select random trees from class k.
@@ -286,7 +291,7 @@ class Forest2D():
         
         # calculate area overlap for each pair of trees
         overlapArea = jit_overlap_area(xy, r)
-        overlapArea = squareform(overlapArea)
+        #overlapArea = squareform(overlapArea)
 
         if run_checks:
             if overlapArea.shape[0]>1000:
@@ -300,10 +305,11 @@ class Forest2D():
 
         # randomly kill trees with rate proportional to overlap with other trees
         counter = 0
-        for i, trees in enumerate(self.trees):
+        for i, trees in enumerate(self.trees):  # size compartments
             killix = []
-            for j in range(len(trees[0])):
-                if (self.rng.rand(r.size) < overlapArea[counter]).any():
+            for j in range(len(trees[0])):  # trees within each compartment
+                if (self.rng.rand(r.size-1) < overlapArea[row_ix_from_utri(j, r.size)]).any():
+                #if (self.rng.rand(r.size) < overlapArea[j]).any():
                     killix.append(j)
                 counter += 1
             
@@ -312,8 +318,9 @@ class Forest2D():
             for j, ix in enumerate(killix):
                 self.trees[i][0].pop(ix-j)
                 self.trees[i][1].pop(ix-j)
+                self.N -= 1
         
-        assert counter==len(overlapArea)
+        assert counter==r.size
 
     def nk(self):
         """Population count per size class.
