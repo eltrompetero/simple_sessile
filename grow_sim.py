@@ -65,6 +65,12 @@ class Forest2D():
         
         # root areas
         self.rootR = coeffs['root'] * rRange**(3/4)
+
+        # canopy area
+        self.canopyR = coeffs.get('canopy r', 0) * rRange**(2/3)
+
+        # canopy height
+        self.canopyH = coeffs.get('canopy h', 0) * rRange**(2/3)
         
         # growth
         self.growRate = coeffs['grow'] * rRange**(1/3) / self.dx
@@ -74,6 +80,8 @@ class Forest2D():
 
         if not 'area competition' in coeffs.keys():
             coeffs['area competition'] = 0.
+        if not 'light competition' in coeffs.keys():
+            coeffs['light competition'] = 0.
 
     def check_dt(self, dt):
         """Pre-simulation check that given time step will not break assumption about rates
@@ -273,14 +281,14 @@ class Forest2D():
         xy = self.trees[k][0][randix]
         return randix, xy
 
-    def compete_area(self, dt=1, run_checks=True):
-        """Play out area competition between trees to kill trees.
+    def compete_area(self, dt=1, run_checks=False):
+        """Play out root area competition between trees to kill trees.
 
         Parameters
         ----------
         dt : float, 1.
             Time step.
-        run_checks : bool, True
+        run_checks : bool, False
         """
         
         # assemble arrays of all tree coordinates and radii
@@ -304,11 +312,12 @@ class Forest2D():
                 warn("Competition rate exceeds rate tolerance limit. Recommend shrinking dt.")
 
         # randomly kill trees with rate proportional to overlap with other trees
+        counter = 0
         for i, trees in enumerate(self.trees):  # size compartments
             killedCounter = 0
             for j in range(len(trees[0])):  # trees within each compartment
                 #if (self.rng.rand(r.size) < overlapArea[j]).any():
-                if (self.rng.rand(r.size-1) < overlapArea[row_ix_from_utri(j, r.size)]).any():
+                if (self.rng.rand(r.size-1) < overlapArea[row_ix_from_utri(counter, r.size)]).any():
                     # remove identified trees from the ith tree size class
                     self.trees[i][0].pop(j-killedCounter)
                     self.trees[i][1].pop(j-killedCounter)
@@ -316,7 +325,59 @@ class Forest2D():
 
                     # keep track of tot number of trees
                     self.N -= 1
-            
+                counter += 1
+
+    def compete_light(self, dt=1, run_checks=False):
+        """Play out light area competition between trees to kill trees.
+
+        Parameters
+        ----------
+        dt : float, 1.
+            Time step.
+        run_checks : bool, False
+        """
+        
+        # assemble arrays of all tree coordinates and radii
+        xy = np.vstack([t[0] for t in self.trees if len(t[0])])
+        r = np.concatenate([[self.canopyR[i]]*len(t[0])
+                             for i, t in enumerate(self.trees)])
+        h = np.concatenate([[self.canopyH[i]]*len(t[0])
+                             for i, t in enumerate(self.trees)])
+        if run_checks:
+            assert len(xy)==len(r)==len(h)
+        
+        # calculate area overlap for each pair of trees
+        overlapArea = jit_overlap_area(xy, r)
+        # turn this overlap area into a competition rate
+        overlapArea *= self.coeffs['light competition'] * dt
+
+        if run_checks:
+            if overlapArea.shape[0]>1000:
+                warn("Many trees in sim. Area competition calculation will be slow.")
+            if (overlapArea > self.tol).any():
+                warn("Competition rate could exceed rate tolerance limit. Recommend shrinking dt.")
+
+        # randomly kill trees with rate proportional to overlap and height diff
+        counter = 0
+        for i, trees in enumerate(self.trees):  # size compartments
+            killedCounter = 0
+            for j in range(len(trees[0])):  # trees within each compartment
+                # height difference between trees
+                dh = np.delete(h - h[counter], counter)
+                dh[dh<0] = 0
+                competeFactor = (overlapArea[row_ix_from_utri(counter, r.size)] * 
+                                 (1 - np.exp(-self.coeffs['light atten'] * dh)))
+
+                if (self.rng.rand(r.size-1) < competeFactor).any():
+                    # remove identified trees from the ith tree size class
+                    self.trees[i][0].pop(j-killedCounter)
+                    self.trees[i][1].pop(j-killedCounter)
+                    killedCounter += 1
+
+                    # keep track of tot number of trees
+                    self.N -= 1
+                counter += 1
+ 
     def nk(self):
         """Population count per size class.
         
@@ -327,7 +388,7 @@ class Forest2D():
         
         return np.array([len(i[0]) for i in self.trees])
     
-    def sample(self, n_sample, dt=1, sample_dt=1):
+    def sample(self, n_sample, dt=1, sample_dt=1, **kwargs):
         """Sample system.
         
         Parameters
@@ -359,7 +420,9 @@ class Forest2D():
             self.grow(dt)
             self.kill(dt)
             if self.coeffs['area competition']:
-                self.compete_area(dt, run_checks=False)
+                self.compete_area(dt, **kwargs)
+            if self.coeffs['light competition']:
+                self.compete_light(dt, **kwargs)
 
             i += 1
             
