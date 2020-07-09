@@ -304,24 +304,19 @@ class Forest2D():
                 warn("Competition rate exceeds rate tolerance limit. Recommend shrinking dt.")
 
         # randomly kill trees with rate proportional to overlap with other trees
-        counter = 0
         for i, trees in enumerate(self.trees):  # size compartments
-            killix = []
+            killedCounter = 0
             for j in range(len(trees[0])):  # trees within each compartment
-                if (self.rng.rand(r.size-1) < overlapArea[row_ix_from_utri(j, r.size)]).any():
                 #if (self.rng.rand(r.size) < overlapArea[j]).any():
-                    killix.append(j)
-                counter += 1
-            
-            # remove identified trees from the ith tree size class
-            # looping through a second time helps keep indices in right order
-            for j, ix in enumerate(killix):
-                self.trees[i][0].pop(ix-j)
-                self.trees[i][1].pop(ix-j)
-                self.N -= 1
-        
-        assert counter==r.size
+                if (self.rng.rand(r.size-1) < overlapArea[row_ix_from_utri(j, r.size)]).any():
+                    # remove identified trees from the ith tree size class
+                    self.trees[i][0].pop(j-killedCounter)
+                    self.trees[i][1].pop(j-killedCounter)
+                    killedCounter += 1
 
+                    # keep track of tot number of trees
+                    self.N -= 1
+            
     def nk(self):
         """Population count per size class.
         
