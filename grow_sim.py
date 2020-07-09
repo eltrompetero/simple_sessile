@@ -72,6 +72,9 @@ class Forest2D():
         # mortality
         self.deathRate = coeffs['death'] * rRange**(-2/3)
 
+        if not 'area competition' in coeffs.keys():
+            coeffs['area competition'] = 0.
+
     def check_dt(self, dt):
         """Pre-simulation check that given time step will not break assumption about rates
         as probabilities from Poisson distribution. This is insufficient for checking
@@ -282,12 +285,7 @@ class Forest2D():
         assert len(xy)==len(r)
         
         # calculate area overlap for each pair of trees
-        overlapArea = np.zeros(r.size*(r.size-1)//2)
-        counter = 0
-        for i in range(r.size-1):
-            for j in range(i+1, r.size):
-                overlapArea[counter] = overlap_area(xy[i], r[i], xy[j], r[j])
-                counter += 1
+        overlapArea = jit_overlap_area(xy, r)
         overlapArea = squareform(overlapArea)
 
         if run_checks:
@@ -358,7 +356,8 @@ class Forest2D():
 
             self.grow(dt)
             self.kill(dt)
-            self.compete_area(dt, run_checks=False)
+            if self.coeffs['area competition']:
+                self.compete_area(dt, run_checks=False)
 
             i += 1
             
@@ -440,6 +439,7 @@ class LogForest2D(Forest2D):
 # ================ #
 # Useful functions 
 # ================ #
+@njit
 def _area_integral(xbds, r):
     """Integral for area of circle centered at origin.
     
@@ -459,14 +459,15 @@ def _area_integral(xbds, r):
     
     return fcn(xbds[1]) - fcn(xbds[0])
 
+@njit
 def overlap_area(xy1, r1, xy2, r2):
     """Given the locations and radii of two circles, calculate the amount of area overlap.
     
     Parameters
     ----------
-    xy1 : tuple
+    xy1 : tuple or ndarray
     r1 : float
-    xy2 : tuple
+    xy2 : tuple or ndarray
     r2 : float
     
     Returns
@@ -489,3 +490,28 @@ def overlap_area(xy1, r1, xy2, r2):
     area = _area_integral((xstar, r1), r1) + _area_integral((-r2, xstar-d), r2)
     
     return area
+
+@njit
+def jit_overlap_area(xy, r):
+    """Calculate area overlap for each pair of trees.
+
+    Parameters
+    ----------
+    xy : list of ndarray or tuples
+        Centers of circles.
+    r : ndarray
+        Radii of circles.
+
+    Returns
+    -------
+    ndarray
+    """
+
+    overlapArea = np.zeros(r.size*(r.size-1)//2)
+    counter = 0
+    for i in range(r.size-1):
+        for j in range(i+1, r.size):
+            overlapArea[counter] = overlap_area(xy[i], r[i], xy[j], r[j])
+            counter += 1
+   
+    return overlapArea
