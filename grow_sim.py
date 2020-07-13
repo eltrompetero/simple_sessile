@@ -135,7 +135,7 @@ class Forest2D():
         else:
             self._grow_no_noise(dt, **kwargs)
             
-    def _grow_noisy(self, dt=1):
+    def _grow_noisy(self, dt=1, **kwargs):
         """Grow trees across all size classes for one time step.
         
         Parameters
@@ -180,7 +180,7 @@ class Forest2D():
             
         self.t += dt
 
-    def _grow_no_noise(self, dt=1):
+    def _grow_no_noise(self, dt=1, **kwargs):
         """Grow trees across all size classes for one time step.
         
         Parameters
@@ -225,7 +225,7 @@ class Forest2D():
             
         self.t += dt
 
-    def kill(self, dt=1):
+    def kill(self, dt=1, noisy=False, **kwargs):
         """Kill trees across all size classes for one time step.
         
         Parameters
@@ -235,15 +235,32 @@ class Forest2D():
         """
         
         # apply mortality rate
-        for k in range(self.kmax):
-            self._kill_trees_bin_k(k, dt)
-                    
-    def _kill_trees_bin_k(self, k, dt=1):
+        if noisy:
+            for k in range(self.kmax):
+                self._kill_trees_bin_k_noisy(k, dt)
+        else:
+            for k in range(self.kmax):
+                self._kill_trees_bin_k_no_noise(k, dt)
+
+    def _kill_trees_bin_k_noisy(self, k, dt=1):
         """Kill trees in bin k. Only to be called by self.kill()."""
         
         if len(self.trees[k][0]):
             n = min(self.rng.poisson(self.deathRate[k] * dt * len(self.trees[k][0])),
                     len(self.trees[k][0]))
+
+            # select n random trees
+            randix = self._random_trees(k, n)
+            for i, ix in enumerate(randix):
+                self.trees[k][0].pop(ix-i)
+                self.trees[k][1].pop(ix-i)
+                self.N -= 1
+
+    def _kill_trees_bin_k_no_noise(self, k, dt=1):
+        """Kill trees in bin k. Only to be called by self.kill()."""
+        
+        if len(self.trees[k][0]):
+            n = min(self.deathRate[k] * dt * len(self.trees[k][0]), len(self.trees[k][0]))
 
             # select n random trees
             randix = self._random_trees(k, n)
@@ -281,7 +298,7 @@ class Forest2D():
         xy = self.trees[k][0][randix]
         return randix, xy
 
-    def compete_area(self, dt=1, run_checks=False):
+    def compete_area(self, dt=1, run_checks=False, **kwargs):
         """Play out root area competition between trees to kill trees.
 
         Parameters
@@ -327,7 +344,7 @@ class Forest2D():
                     self.N -= 1
                 counter += 1
 
-    def compete_light(self, dt=1, run_checks=False):
+    def compete_light(self, dt=1, run_checks=False, **kwargs):
         """Play out light area competition between trees to kill trees.
 
         Parameters
@@ -406,19 +423,25 @@ class Forest2D():
         ndarray
             Sample of timepoints (n_sample, n_compartments)
         ndarray
+            Time points.
+        ndarray
             Compartments r_k.
         """
         
+        t = np.zeros(n_sample)
         nk = np.zeros((n_sample, len(self.trees)))
         i = 0
-        counter = 0
+        counter = 0  # for no. of samples saved
         while counter < n_sample:
-            if (i - counter * sample_dt / dt)>=0:
+            # measure every dt, but make sure to account for potential floating point
+            # precision errors
+            if (i - counter * sample_dt / dt + 1e-15)>=0:
+                t[counter] = dt * i
                 nk[counter] = self.nk()
                 counter += 1
 
-            self.grow(dt)
-            self.kill(dt)
+            self.grow(dt, **kwargs)
+            self.kill(dt, **kwargs)
             if self.coeffs['area competition']:
                 self.compete_area(dt, **kwargs)
             if self.coeffs['light competition']:
@@ -426,7 +449,7 @@ class Forest2D():
 
             i += 1
             
-        return nk, self.rRange
+        return nk, t, self.rRange
 
     def snapshot(self):
         """Return copy of self.trees.

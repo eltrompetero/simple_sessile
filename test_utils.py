@@ -1,3 +1,7 @@
+# ====================================================================================== #
+# Forest test utils.py
+# Author : Eddie Lee, edlee@santafe.edu
+# ====================================================================================== #
 from .utils import *
 from itertools import combinations
 
