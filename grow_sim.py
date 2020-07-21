@@ -150,7 +150,8 @@ class Forest2D():
         if len(self.trees[k][0]):
             # typical number of trees from a given size class that should 
             # grow is given by Poisson distribution
-            n = self.rng.poisson(self.growRate[k] * dt * len(self.trees[k][0]))
+            n = min(self.rng.poisson(self.growRate[k] * dt * len(self.trees[k][0])),
+                    len(self.trees[k][0]))
 
             # select n random trees to move up a class
             randix = self._random_trees(k, n)
@@ -164,7 +165,8 @@ class Forest2D():
             if len(self.trees[k][0]):
                 # typical number of trees from a given size class that should 
                 # grow is given by Poisson distribution
-                n = self.rng.poisson(self.growRate[k] * dt * len(self.trees[k][0]))
+                n = min(self.rng.poisson(self.growRate[k] * dt * len(self.trees[k][0])),
+                        len(self.trees[k][0]))
 
                 # select n random trees to move up a class
                 randix = self._random_trees(k, n)
@@ -260,7 +262,7 @@ class Forest2D():
         """Kill trees in bin k. Only to be called by self.kill()."""
         
         if len(self.trees[k][0]):
-            n = min(self.deathRate[k] * dt * len(self.trees[k][0]), len(self.trees[k][0]))
+            n = min(int(self.deathRate[k] * dt * len(self.trees[k][0])), len(self.trees[k][0]))
 
             # select n random trees
             randix = self._random_trees(k, n)
