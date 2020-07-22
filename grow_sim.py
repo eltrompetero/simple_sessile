@@ -7,12 +7,13 @@ from matplotlib.patches import Circle
 from matplotlib.collections import PatchCollection
 from scipy.spatial.distance import squareform
 from warnings import warn
+from misc.stats import PowerLaw
 from .utils import *
 
 
 
 class Forest2D():
-    def __init__(self, L, g0, r_range, coeffs, tol=.1, rng=None):
+    def __init__(self, L, g0, r_range, coeffs, nu=2, tol=.1, rng=None):
         """
         Parameters
         ----------
@@ -26,6 +27,8 @@ class Forest2D():
             Coefficients controlling how radius gets converted into other 
             measurements via allometric scaling.
             'root' : root length
+        nu : float, 2
+            Exponent for fluctuations in environment.
         tol : float, .1
             Max value desirable for rate to probability mapping. This should be as small
             as possible to keep Poisson assumption accurate, but will slow down
@@ -50,6 +53,10 @@ class Forest2D():
         # within each size class we have a list for locations and birth times
         self.trees = [[[],[]] for k in range(self.kmax)]
         self.N = 0
+
+        # env fluctuation
+        assert nu>=2
+        self.env_rng = PowerLaw(nu)
         
         self.rng = rng or np.random.RandomState()
         
@@ -64,10 +71,10 @@ class Forest2D():
         self.dx = rRange[1] - rRange[0]  # assuming linearly spaced bins
         
         # root areas
-        self.rootR = coeffs['root'] * rRange**(3/4)
+        self.rootR = coeffs['root'] * rRange**(2/3)
 
         # canopy area
-        self.canopyR = coeffs.get('canopy r', 0) * rRange**(2/3)
+        self.canopyR = coeffs.get('canopy r', 0) * rRange**(3/4)
 
         # canopy height
         self.canopyH = coeffs.get('canopy h', 0) * rRange**(2/3)
@@ -75,8 +82,11 @@ class Forest2D():
         # growth
         self.growRate = coeffs['grow'] * rRange**(1/3) / self.dx
         
-        # mortality
+        # natural mortality
         self.deathRate = coeffs['death'] * rRange**(-2/3)
+
+        # basal metabolic rate
+        self.basalMetRate = coeffs.get('basal', 0) * rRange**1.8
 
         if not 'area competition' in coeffs.keys():
             coeffs['area competition'] = 0.
@@ -196,7 +206,8 @@ class Forest2D():
         k = self.kmax - 1
         if len(self.trees[k][0]):
             # typical number of trees from a given size class that should 
-            # grow is given by Poisson distribution
+            # grow is given by Poisson distribution with this average
+            # this only works well when the numbers are big for discretization not to matter
             n = int(self.growRate[k] * dt * len(self.trees[k][0]))
 
             # select n random trees to move up a class
@@ -330,14 +341,19 @@ class Forest2D():
             if (overlapArea > self.tol).any():
                 warn("Competition rate exceeds rate tolerance limit. Recommend shrinking dt.")
 
-        # randomly kill trees with rate proportional to overlap with other trees
+        # randomly kill trees depending on whether or not below total basal met rate
         counter = 0
+        xi = self.env_rng.rvs()  # current env status
         for i, trees in enumerate(self.trees):  # size compartments
             killedCounter = 0
             for j in range(len(trees[0])):  # trees within each compartment
-                #if (self.rng.rand(r.size) < overlapArea[j]).any():
-                if (self.rng.rand(r.size-1) < overlapArea[row_ix_from_utri(counter, r.size)]).any():
-                    # remove identified trees from the ith tree size class
+                # as an indpt pair approx just sum over all overlapping areas
+                # technically, one should consider areas where multiple trees overlap as different
+                dresource = (self.rootR[i]**2 - overlapArea[row_ix_from_utri(counter, r.size)].sum() *
+                             self.coeffs['sharing fraction'] ) * self.coeffs['resource efficiency']
+                if (self.basalMetRate[i] > (dresource / xi) and
+                    self.rng.rand() < (self.coeffs['dep death rate']*dt)):
+                    # remove identified tree from the ith tree size class
                     self.trees[i][0].pop(j-killedCounter)
                     self.trees[i][1].pop(j-killedCounter)
                     killedCounter += 1
