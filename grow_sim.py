@@ -56,6 +56,7 @@ class Forest2D():
 
         # env fluctuation
         assert nu>=2
+        self.nu = nu
         self.env_rng = PowerLaw(nu)
         
         self.rng = rng or np.random.RandomState()
@@ -335,24 +336,19 @@ class Forest2D():
             if overlapArea.shape[0]>1000:
                 warn("Many trees in sim. Area competition calculation will be slow.")
         
-        # turn this overlap area into a competition rate
-        overlapArea *= self.coeffs['area competition'] * dt
-        if run_checks:
-            if (overlapArea > self.tol).any():
-                warn("Competition rate exceeds rate tolerance limit. Recommend shrinking dt.")
-
         # randomly kill trees depending on whether or not below total basal met rate
         counter = 0
         xi = self.env_rng.rvs()  # current env status
         for i, trees in enumerate(self.trees):  # size compartments
             killedCounter = 0
+            area = np.pi * self.rootR[i]**2
             for j in range(len(trees[0])):  # trees within each compartment
                 # as an indpt pair approx just sum over all overlapping areas
                 # technically, one should consider areas where multiple trees overlap as different
-                dresource = (self.rootR[i]**2 - overlapArea[row_ix_from_utri(counter, r.size)].sum() *
+                dresource = (area - overlapArea[row_ix_from_utri(counter, r.size)].sum() *
                              self.coeffs['sharing fraction'] ) * self.coeffs['resource efficiency']
                 if (self.basalMetRate[i] > (dresource / xi) and
-                    self.rng.rand() < (self.coeffs['dep death rate']*dt)):
+                    self.rng.rand() < (self.coeffs['dep death rate']*self.coeffs['area competition']*dt)):
                     # remove identified tree from the ith tree size class
                     self.trees[i][0].pop(j-killedCounter)
                     self.trees[i][1].pop(j-killedCounter)
@@ -423,7 +419,7 @@ class Forest2D():
         
         return np.array([len(i[0]) for i in self.trees])
     
-    def sample(self, n_sample, dt=1, sample_dt=1, **kwargs):
+    def sample(self, n_sample, dt=1, sample_dt=1, n_forests=1, **kwargs):
         """Sample system.
         
         Parameters
@@ -435,6 +431,9 @@ class Forest2D():
         sample_dt : float, 1.
             Save sampled spaced out in time by this amount. This means that the total
             number of iterations is n_sample / dt * sample_dt.
+        n_forests : int, 1
+            If greater than 1, sample multiple random forests at once.
+        **kwargs
         
         Returns
         -------
@@ -446,28 +445,39 @@ class Forest2D():
             Compartments r_k.
         """
         
-        t = np.zeros(n_sample)
-        nk = np.zeros((n_sample, len(self.trees)))
-        i = 0
-        counter = 0  # for no. of samples saved
-        while counter < n_sample:
-            # measure every dt, but make sure to account for potential floating point
-            # precision errors
-            if (i - counter * sample_dt / dt + 1e-15)>=0:
-                t[counter] = dt * i
-                nk[counter] = self.nk()
-                counter += 1
+        if n_forests==1:
+            t = np.zeros(n_sample)
+            nk = np.zeros((n_sample, len(self.trees)))
+            i = 0
+            counter = 0  # for no. of samples saved
+            while counter < n_sample:
+                # measure every dt, but make sure to account for potential floating point
+                # precision errors
+                if (i - counter * sample_dt / dt + 1e-15)>=0:
+                    t[counter] = dt * i
+                    nk[counter] = self.nk()
+                    counter += 1
 
-            self.grow(dt, **kwargs)
-            self.kill(dt, **kwargs)
-            if self.coeffs['area competition']:
-                self.compete_area(dt, **kwargs)
-            if self.coeffs['light competition']:
-                self.compete_light(dt, **kwargs)
+                self.grow(dt, **kwargs)
+                self.kill(dt, **kwargs)
+                if self.coeffs['area competition']:
+                    self.compete_area(dt, **kwargs)
+                if self.coeffs['light competition']:
+                    self.compete_light(dt, **kwargs)
 
-            i += 1
-            
-        return nk, t, self.rRange
+                i += 1
+                
+            return nk, t, self.rRange
+
+        def loop_wrapper(args):
+            forest = Forest2D(self.L, self.g0, self.rRange, self.coeffs, self.nu)
+            nk, t, rk = forest.sample(n_sample, dt, sample_dt, **kwargs)
+            return nk, t, rk, forest.trees
+
+        with threadpool_limits(limits=1, user_api='blas'):
+            with Pool(cpu_count()-1) as pool:
+                nk, t, rk, trees = list(zip(*pool.map(loop_wrapper, range(n_forests))))
+        return nk, t, rk
 
     def snapshot(self):
         """Return copy of self.trees.
