@@ -330,7 +330,6 @@ class Forest2D():
         
         # calculate area overlap for each pair of trees
         overlapArea = jit_overlap_area(xy, r)
-        #overlapArea = squareform(overlapArea)
 
         if run_checks:
             if overlapArea.shape[0]>1000:
@@ -357,6 +356,8 @@ class Forest2D():
                     # keep track of tot number of trees
                     self.N -= 1
                 counter += 1
+
+        return overlapArea
 
     def compete_light(self, dt=1, run_checks=False, **kwargs):
         """Play out light area competition between trees to kill trees.
@@ -419,7 +420,8 @@ class Forest2D():
         
         return np.array([len(i[0]) for i in self.trees])
     
-    def sample(self, n_sample, dt=1, sample_dt=1, n_forests=1, **kwargs):
+    def sample(self, n_sample, dt=1, sample_dt=1, n_forests=1, return_trees=False,
+               **kwargs):
         """Sample system.
         
         Parameters
@@ -433,6 +435,7 @@ class Forest2D():
             number of iterations is n_sample / dt * sample_dt.
         n_forests : int, 1
             If greater than 1, sample multiple random forests at once.
+        return_trees : bool, False
         **kwargs
         
         Returns
@@ -477,6 +480,9 @@ class Forest2D():
         with threadpool_limits(limits=1, user_api='blas'):
             with Pool(cpu_count()-1) as pool:
                 nk, t, rk, trees = list(zip(*pool.map(loop_wrapper, range(n_forests))))
+
+        if return_trees:
+            return nk, t, rk, trees
         return nk, t, rk
 
     def snapshot(self):
@@ -485,13 +491,26 @@ class Forest2D():
 
         return [[i[0][:], i[1][:]] for i in self.trees]
 
-    def plot(self, all_trees=None, fig=None, fig_kw={'figsize':(6,6)}):
+    def plot(self,
+             all_trees=None,
+             fig=None,
+             fig_kw={'figsize':(6,6)},
+             plot_kw={},
+             class_ix=None,
+             show_canopy=True,
+             show_root=True,
+             show_center=False):
         """
         Parameters
         ----------
         all_trees : list, None
         fig : matplotlib.Figure, None
         fig_kw : dict, {'figsize':(6,6)}
+        class_ix : list, None
+            Tree compartment indices to show.
+        show_canopy : bool, True
+        show_root : bool, True
+        show_center : bool, False
 
         Returns
         -------
@@ -502,26 +521,39 @@ class Forest2D():
             all_trees = self.trees
         if fig is None:
             fig = plt.figure(**fig_kw)
+        if class_ix is None:
+            class_ix = list(range(len(all_trees)))
         ax = fig.add_subplot(1,1,1)
         
         # canopy area
-        patches = []
-        for i, trees in enumerate(all_trees):
-            for xy, t in zip(*trees):
-                patches.append(Circle(xy, self.rRange[i] * self.coeffs['canopy'], ec='k'))
-        pcollection = PatchCollection(patches, facecolors='green', alpha=.2)
-        ax.add_collection(pcollection)
+        if show_canopy:
+            patches = []
+            for i, trees in enumerate(all_trees):
+                if i in class_ix:
+                    for xy, t in zip(*trees):
+                        patches.append(Circle(xy, self.rRange[i] * self.coeffs['canopy'], ec='k'))
+            pcollection = PatchCollection(patches, facecolors='green', alpha=.2)
+            ax.add_collection(pcollection)
 
         # root area
-        patches = []
-        for i, trees in enumerate(all_trees):
-            for xy, t in zip(*trees):
-                patches.append(Circle(xy, self.rootR[i]))
-        pcollection = PatchCollection(patches, facecolors='brown', alpha=.15)
-        ax.add_collection(pcollection)
+        if show_root:
+            patches = []
+            for i, trees in enumerate(all_trees):
+                if i in class_ix:
+                    for xy, t in zip(*trees):
+                        patches.append(Circle(xy, self.rootR[i]))
+            pcollection = PatchCollection(patches, facecolors='brown', alpha=.15)
+            ax.add_collection(pcollection)
+
+        # centers
+        if show_center:
+            for i, trees in enumerate(all_trees):
+                if len(trees[0]) and i in class_ix:
+                    xy = np.vstack(trees[0])
+                    ax.plot(xy[:,0], xy[:,1], 'k.')
         
         # plot settings
-        ax.set(xlim=(0, self.L), ylim=(0, self.L))
+        ax.set(xlim=(0, self.L), ylim=(0, self.L), **plot_kw)
 
         return fig
 #end Forest2D

@@ -4,7 +4,7 @@
 # ====================================================================================== #
 import numpy as np
 from netCDF4 import Dataset
-from scipy.spatial.distance import pdist
+from scipy.spatial.distance import pdist, squareform
 from numpy import ma
 from numba import njit
 from threadpoolctl import threadpool_limits
@@ -43,3 +43,26 @@ def row_ix_from_utri(i, n):
     for j in range(i+1, n):
         ix[j-1] = offset + j - i - 1
     return ix
+
+def nearest_neighbor_dist(xy):
+    """Find distances to nearest neighbors in tree plot.
+
+    Parameters
+    ----------
+    xy : ndarray
+        List of xy positions by row.
+    
+    Returns
+    -------
+    ndarray 
+    """
+    
+    assert len(xy) < 1e4, "No. of pairwise distances to compute is too large."
+
+    # calculate distance to nearest neighbor
+    dr = pdist(xy)
+
+    dr = squareform(dr)
+    dr[np.diag_indices_from(dr)] = np.inf
+
+    return dr.min(0)
