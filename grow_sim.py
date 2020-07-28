@@ -550,7 +550,7 @@ class Forest2D():
             for i, trees in enumerate(all_trees):
                 if len(trees[0]) and i in class_ix:
                     xy = np.vstack(trees[0])
-                    ax.plot(xy[:,0], xy[:,1], 'k.')
+                    ax.plot(xy[:,0], xy[:,1], 'k.', ms=2)
         
         # plot settings
         ax.set(xlim=(0, self.L), ylim=(0, self.L), **plot_kw)
