@@ -49,10 +49,8 @@ class Forest2D():
         self.coeffs = coeffs
         self.kmax = r_range.size
         
-        # each element in trees is for all trees of the same size
-        # within each size class we have a list for locations and birth times
-        self.trees = [[[],[]] for k in range(self.kmax)]
-        self.N = 0
+        self.trees = []  # list of all trees in system
+        self.deadTrees = []  # list of all dead trees
 
         # env fluctuation
         assert nu>=2
@@ -126,27 +124,7 @@ class Forest2D():
 
         return checks
 
-    def grow(self, dt, noisy=False, **kwargs):
-        """Grow trees across all size classes for one time step.
-        
-        This is the wrapper for multiple methods.
-        
-        Parameters
-        ----------
-        dt : float
-            Time step.
-        noisy : bool, False
-            If True, then use Poisson distribution to sample from rates.
-        dt : float, 1.
-            Time step.
-        """
-        
-        if noisy:
-            self._grow_noisy(dt, **kwargs)
-        else:
-            self._grow_no_noise(dt, **kwargs)
-            
-    def _grow_noisy(self, dt=1, **kwargs):
+    def grow(self, dt, **kwargs):
         """Grow trees across all size classes for one time step.
         
         Parameters
@@ -156,133 +134,51 @@ class Forest2D():
         """
         
         # all trees grow in size
-        # when the largest ones grow, they leave the system
-        k = self.kmax - 1
-        if len(self.trees[k][0]):
-            # typical number of trees from a given size class that should 
-            # grow is given by Poisson distribution
-            n = min(self.rng.poisson(self.growRate[k] * dt * len(self.trees[k][0])),
-                    len(self.trees[k][0]))
+        r = self.rng.rand(len(self.trees))
+        # except for the largest ones that leave the system
+        removeix = []
 
-            # select n random trees to move up a class
-            randix = self._random_trees(k, n)
-            for i, ix in enumerate(randix):
-                self.trees[k][0].pop(ix-i)
-                self.trees[k][1].pop(ix-i)
-                self.N -= 1
-        
-        # grow all other trees besides the largest one
-        for k in range(self.kmax-2, -1, -1):
-            if len(self.trees[k][0]):
-                # typical number of trees from a given size class that should 
-                # grow is given by Poisson distribution
-                n = min(self.rng.poisson(self.growRate[k] * dt * len(self.trees[k][0])),
-                        len(self.trees[k][0]))
+        for i, tree in enumerate(self.trees):
+            # probability that tree of given size class should grow
+            if r[i] < (self.growRate[tree.size_ix] * dt):
+                if tree.size_ix > self.kmax:
+                    removeix.append(i)
+                else:
+                    tree.grow()
 
-                # select n random trees to move up a class
-                randix = self._random_trees(k, n)
-                for i, ix in enumerate(randix):
-                    self.trees[k+1][0].append( self.trees[k][0].pop(ix-i) )
-                    self.trees[k+1][1].append( self.trees[k][1].pop(ix-i) )
-        
-        # grow saplings
+        counter = 0
+        for ix in removeix:
+            self.deadTrees.append(self.trees.pop(ix-counter))
+            counter += 1
+
+        # introduce saplings
         for i in range(self.rng.poisson(self.g0 * dt)):
-            self.trees[0][0].append(self.rng.uniform(0, self.L, size=2))
-            self.trees[0][1].append(self.t)
-            self.N += 1
+            self.trees.append( Tree(self.rng.uniform(0, self.L, size=2), self.t) )
             
         self.t += dt
 
-    def _grow_no_noise(self, dt=1, **kwargs):
-        """Grow trees across all size classes for one time step.
-        
-        Parameters
-        ----------
-        dt : float, 1.
-            Time step.
-        """
-        
-        # all trees grow in size
-        # when the largest ones grow, they leave the system
-        k = self.kmax - 1
-        if len(self.trees[k][0]):
-            # typical number of trees from a given size class that should 
-            # grow is given by Poisson distribution with this average
-            # this only works well when the numbers are big for discretization not to matter
-            n = int(self.growRate[k] * dt * len(self.trees[k][0]))
-
-            # select n random trees to move up a class
-            randix = self._random_trees(k, n)
-            for i, ix in enumerate(randix):
-                self.trees[k][0].pop(ix-i)
-                self.trees[k][1].pop(ix-i)
-                self.N -= 1
-        
-        # grow all other trees besides the largest one
-        for k in range(self.kmax-2, -1, -1):
-            if len(self.trees[k][0]):
-                # typical number of trees from a given size class that should 
-                # grow is given by Poisson distribution
-                n = int(self.growRate[k] * dt * len(self.trees[k][0]))
-
-                # select n random trees to move up a class
-                randix = self._random_trees(k, n)
-                for i, ix in enumerate(randix):
-                    self.trees[k+1][0].append(self.trees[k][0].pop(ix-i))
-                    self.trees[k+1][1].append(self.trees[k][1].pop(ix-i))
-        
-        # grow saplings
-        for i in range(int(self.g0 * dt)):
-            self.trees[0][0].append(self.rng.uniform(0, self.L, size=2))
-            self.trees[0][1].append(self.t)
-            self.N += 1
-            
-        self.t += dt
-
-    def kill(self, dt=1, noisy=False, **kwargs):
+    def kill(self, dt=1, **kwargs):
         """Kill trees across all size classes for one time step.
         
         Parameters
         ----------
         dt : float, 1.
             Time step.
+        **kwargs
         """
         
-        # apply mortality rate
-        if noisy:
-            for k in range(self.kmax):
-                self._kill_trees_bin_k_noisy(k, dt)
-        else:
-            for k in range(self.kmax):
-                self._kill_trees_bin_k_no_noise(k, dt)
+        r = self.rng.rand(len(self.trees))
+        removeix = []
 
-    def _kill_trees_bin_k_noisy(self, k, dt=1):
-        """Kill trees in bin k. Only to be called by self.kill()."""
-        
-        if len(self.trees[k][0]):
-            n = min(self.rng.poisson(self.deathRate[k] * dt * len(self.trees[k][0])),
-                    len(self.trees[k][0]))
+        for i, tree in enumerate(self.trees):
+            if r[i] < (self.deathRate[tree.size_ix] * dt):
+                removeix.append(i)
 
-            # select n random trees
-            randix = self._random_trees(k, n)
-            for i, ix in enumerate(randix):
-                self.trees[k][0].pop(ix-i)
-                self.trees[k][1].pop(ix-i)
-                self.N -= 1
+        counter = 0
+        for ix in removeix:
+            self.deadTrees.append(self.trees.pop(ix-counter))
+            counter += 1
 
-    def _kill_trees_bin_k_no_noise(self, k, dt=1):
-        """Kill trees in bin k. Only to be called by self.kill()."""
-        
-        if len(self.trees[k][0]):
-            n = min(int(self.deathRate[k] * dt * len(self.trees[k][0])), len(self.trees[k][0]))
-
-            # select n random trees
-            randix = self._random_trees(k, n)
-            for i, ix in enumerate(randix):
-                self.trees[k][0].pop(ix-i)
-                self.trees[k][1].pop(ix-i)
-                self.N -= 1
-                
     def _random_trees(self, k, n, return_xy=False):
         """Select random trees from class k.
         
@@ -323,41 +219,42 @@ class Forest2D():
         """
         
         # assemble arrays of all tree coordinates and radii
-        xy = np.vstack([t[0] for t in self.trees if len(t[0])])
-        r = np.concatenate([[self.rootR[i]]*len(t[0])
-                             for i, t in enumerate(self.trees)])
-        assert len(xy)==len(r)
+        xy = np.vstack([t.xy for t in self.trees])
+        r = np.array([self.rootR[t.size_ix] for t in self.trees])
+        if not 'overlapArea' in self.__dict__.keys():
+            self.overlapArea = np.zeros(r.size * (r.size-1) // 2) - 1
+        assert self.overlapArea.size==(r.size * (r.size-1) // 2), (self.overlapArea.size, (r.size * (r.size-1) // 2))
         
-        # calculate area overlap for each pair of trees
-        overlapArea = jit_overlap_area(xy, r)
+        # must ensure that there are at least two trees to compare
+        if xy.ndim==2:
+            # calculate area overlap for each pair of trees
+            jit_overlap_area_avoid_repeat(xy, r, self.overlapArea, self.L/2)
 
-        if run_checks:
-            if overlapArea.shape[0]>1000:
-                warn("Many trees in sim. Area competition calculation will be slow.")
-        
-        # randomly kill trees depending on whether or not below total basal met rate
-        counter = 0
-        xi = self.env_rng.rvs()  # current env status
-        for i, trees in enumerate(self.trees):  # size compartments
-            killedCounter = 0
-            area = np.pi * self.rootR[i]**2
-            for j in range(len(trees[0])):  # trees within each compartment
+            if run_checks:
+                if self.overlapArea.shape[0] > 1000:
+                    warn("Many trees in sim. Area competition calculation will be slow.")
+            
+            # randomly kill trees depending on whether or not below total basal met rate
+            removeix = []
+            xi = self.env_rng.rvs()  # current env status
+            for i, tree in enumerate(self.trees):  # size compartments
+                area = np.pi * r[i]**2
+
                 # as an indpt pair approx just sum over all overlapping areas
                 # technically, one should consider areas where multiple trees overlap as different
-                dresource = (area - overlapArea[row_ix_from_utri(counter, r.size)].sum() *
+                dresource = (area - self.overlapArea[row_ix_from_utri(i, r.size)].sum() *
                              self.coeffs['sharing fraction'] ) * self.coeffs['resource efficiency']
-                if (self.basalMetRate[i] > (dresource / xi) and
+                if (self.basalMetRate[tree.size_ix] > (dresource / xi) and
                     self.rng.rand() < (self.coeffs['dep death rate']*self.coeffs['area competition']*dt)):
                     # remove identified tree from the ith tree size class
-                    self.trees[i][0].pop(j-killedCounter)
-                    self.trees[i][1].pop(j-killedCounter)
-                    killedCounter += 1
+                    self.deadTrees.append( self.trees.pop(i-len(removeix)) )
+                    removeix.append(i)
 
-                    # keep track of tot number of trees
-                    self.N -= 1
-                counter += 1
+            for i, ix in enumerate(removeix):
+                self.overlapArea = delete_flat_dist_rowcol(self.overlapArea, ix-i,
+                                                           len(self.trees) + len(removeix) - i)
 
-        return overlapArea
+            assert self.overlapArea.size==(len(self.trees) * (len(self.trees)-1) // 2)
 
     def compete_light(self, dt=1, run_checks=False, **kwargs):
         """Play out light area competition between trees to kill trees.
@@ -369,6 +266,9 @@ class Forest2D():
         run_checks : bool, False
         """
         
+        # needs updating for tree object-based implementation
+        raise NotImplementedError
+
         # assemble arrays of all tree coordinates and radii
         xy = np.vstack([t[0] for t in self.trees if len(t[0])])
         r = np.concatenate([[self.canopyR[i]]*len(t[0])
@@ -405,9 +305,6 @@ class Forest2D():
                     self.trees[i][0].pop(j-killedCounter)
                     self.trees[i][1].pop(j-killedCounter)
                     killedCounter += 1
-
-                    # keep track of tot number of trees
-                    self.N -= 1
                 counter += 1
  
     def nk(self):
@@ -418,7 +315,10 @@ class Forest2D():
         ndarray
         """
         
-        return np.array([len(i[0]) for i in self.trees])
+        nk = np.zeros(self.kmax, dtype=int)
+        for tree in self.trees:
+            nk[tree.size_ix] += 1
+        return nk
     
     def sample(self, n_sample, dt=1, sample_dt=1, n_forests=1, return_trees=False,
                **kwargs):
@@ -443,14 +343,14 @@ class Forest2D():
         ndarray
             Sample of timepoints (n_sample, n_compartments)
         ndarray
-            Time points.
+            Time.
         ndarray
             Compartments r_k.
         """
         
         if n_forests==1:
             t = np.zeros(n_sample)
-            nk = np.zeros((n_sample, len(self.trees)))
+            nk = np.zeros((n_sample, self.kmax))
             i = 0
             counter = 0  # for no. of samples saved
             while counter < n_sample:
@@ -463,9 +363,9 @@ class Forest2D():
 
                 self.grow(dt, **kwargs)
                 self.kill(dt, **kwargs)
-                if self.coeffs['area competition']:
+                if self.coeffs['area competition'] and len(self.trees):
                     self.compete_area(dt, **kwargs)
-                if self.coeffs['light competition']:
+                if self.coeffs['light competition'] and len(self.trees):
                     self.compete_light(dt, **kwargs)
 
                 i += 1
@@ -489,7 +389,7 @@ class Forest2D():
         """Return copy of self.trees.
         """
 
-        return [[i[0][:], i[1][:]] for i in self.trees]
+        return [tree.copy() for tree in self.trees]
 
     def plot(self,
              all_trees=None,
@@ -584,6 +484,39 @@ class LogForest2D(Forest2D):
 
 
 
+class Tree():
+    """Tree object for keeping track of tree properties.
+    """
+    def __init__(self, xy, t0=0):
+        """
+        Parameters
+        ----------
+        xy : ndarray or twople
+            Position of tree.
+        t0 : float, 0
+            Birth time.
+        """
+
+        self.xy = xy
+        self.t0 = t0
+        self.t = None
+        self.size_ix = 0  # size class to which tree belongs
+
+    def grow(self):
+        self.size_ix += 1
+    
+    def kill(self, t):
+        self.t = t
+
+    def copy(self):
+        tree = Tree(self.xy, self.t0)
+        tree.size_ix = self.size_ix
+        tree.t = self.t
+        return tree
+#end Tree
+
+
+
 # ================ #
 # Useful functions 
 # ================ #
@@ -608,14 +541,14 @@ def _area_integral(xbds, r):
     return fcn(xbds[1]) - fcn(xbds[0])
 
 @njit
-def overlap_area(xy1, r1, xy2, r2):
+def overlap_area(d, r1, r2):
     """Given the locations and radii of two circles, calculate the amount of area overlap.
     
     Parameters
     ----------
-    xy1 : tuple or ndarray
+    d : float
+        Distance between centers of two circles.
     r1 : float
-    xy2 : tuple or ndarray
     r2 : float
     
     Returns
@@ -625,7 +558,6 @@ def overlap_area(xy1, r1, xy2, r2):
     
     assert r1>0 and r2>0
     
-    d = np.sqrt((xy1[0]-xy2[0])**2 + (xy1[1]-xy2[1])**2)
     # no overlap
     if d>=(r1+r2):
         return 0.
@@ -663,3 +595,103 @@ def jit_overlap_area(xy, r):
             counter += 1
    
     return overlapArea
+
+#@njit
+def jit_overlap_area_avoid_repeat(xy, r, overlapArea, maxd):
+    """Calculate area overlap for each pair of trees.
+
+    Parameters
+    ----------
+    xy : list of ndarray or tuples
+        Centers of circles.
+    r : ndarray
+        Radii of circles.
+    area : ndarray
+        Entries that 0 should be calculated. Entries that are either nonzero or np.inf
+        should be ignored.
+    maxd : float
+        Max distance permissible between two circles before we ignore future calculations.
+
+    Returns
+    -------
+    ndarray
+    """
+
+    counter = 0
+    for i in range(r.size-1):
+        for j in range(i+1, r.size):
+            if overlapArea[counter]==-1.:
+                d = np.sqrt((xy[i,0]-xy[j,0])**2 + (xy[i,1]-xy[j,1])**2)
+
+                # if far apart, avoid calculation
+                if d>=maxd:
+                    overlapArea[counter] = np.inf
+                else:
+                    overlapArea[counter] = overlap_area(d, r[i], r[j])
+            counter += 1
+   
+    return overlapArea
+
+@njit
+def delete_flat_dist_rowcol(dist, remove_ix, n):
+    """Remove elements from flattened square distance matrix corresponding to both col and
+    row of specified element.
+
+    Parameters
+    ----------
+    dist : ndarray
+    remove_ix : int
+    n : int
+        Dimension of square matrix corresponding to dist.
+
+    Returns
+    -------
+    ndarray
+    """
+    
+    newDist = np.zeros((n-1) * (n-2) // 2)
+
+    counter = 0
+    inCounter = 0
+    for i in range(n-1):
+        for j in range(i+1, n):
+            if i!=remove_ix and j!=remove_ix:
+                newDist[inCounter] = dist[counter]
+                inCounter += 1
+            counter += 1
+
+    return newDist
+
+@njit
+def append_flat_dist_rowcol(dist, fillval, n):
+    """Append to flattened square distance matrix an additional element col and
+    row of specified element.
+
+    Parameters
+    ----------
+    dist : ndarray
+    fillval : float
+    n : int
+        Dimension of square matrix corresponding to dist.
+
+    Returns
+    -------
+    ndarray
+    """
+    
+    newDist = np.zeros((n+1) * n // 2)
+
+    counter = 0
+    inCounter = 0
+    for i in range(n):
+        for j in range(i+1, (n+1)):
+            if j==n:
+                newDist[inCounter] = fillval
+                inCounter += 1
+            else:
+                newDist[inCounter] = dist[counter]
+                inCounter += 1
+                counter += 1
+
+    return newDist
+
