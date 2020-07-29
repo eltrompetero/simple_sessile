@@ -47,7 +47,7 @@ class Forest2D():
         
         self.rRange = r_range
         self.coeffs = coeffs
-        self.kmax = r_range.size
+        self.kmax = r_range.size - 1
         
         self.trees = []  # list of all trees in system
         self.deadTrees = []  # list of all dead trees
@@ -140,8 +140,8 @@ class Forest2D():
 
         for i, tree in enumerate(self.trees):
             # probability that tree of given size class should grow
-            if r[i] < (self.growRate[tree.size_ix] * dt):
-                if tree.size_ix > self.kmax:
+            if r[i] <= (self.growRate[tree.size_ix] * dt):
+                if tree.size_ix == self.kmax:
                     removeix.append(i)
                 else:
                     tree.grow()
@@ -154,7 +154,7 @@ class Forest2D():
         # introduce saplings
         for i in range(self.rng.poisson(self.g0 * dt)):
             self.trees.append( Tree(self.rng.uniform(0, self.L, size=2), self.t) )
-            
+
         self.t += dt
 
     def kill(self, dt=1, **kwargs):
@@ -168,47 +168,14 @@ class Forest2D():
         """
         
         r = self.rng.rand(len(self.trees))
-        removeix = []
+        killedCounter = 0
 
         for i, tree in enumerate(self.trees):
             if r[i] < (self.deathRate[tree.size_ix] * dt):
-                removeix.append(i)
+                self.deadTrees.append( self.trees.pop(i-killedCounter).kill(self.t) )
+                killedCounter += 1
 
-        counter = 0
-        for ix in removeix:
-            self.deadTrees.append(self.trees.pop(ix-counter))
-            counter += 1
-
-    def _random_trees(self, k, n, return_xy=False):
-        """Select random trees from class k.
-        
-        Is there a faster way to execute this?
-        
-        Parameters
-        ----------
-        k : int
-            Size class
-        n : int
-            Number of trees to select.
-        return_xy : bool, False
-            If True, return locations as well.
-        
-        Returns
-        -------
-        ndarray
-            Sorted indices of random trees.
-        list of tuple (optional)
-            Coordinates of trees.
-        """
-        
-        randix = np.sort(self.rng.choice(range(len(self.trees[k][0])), size=n, replace=False))
-        if not return_xy:
-            return randix
-
-        xy = self.trees[k][0][randix]
-        return randix, xy
-
-    def compete_area(self, dt=1, run_checks=False, **kwargs):
+    def compete_area(self, dt=1, run_checks=False):
         """Play out root area competition between trees to kill trees.
 
         Parameters
@@ -221,40 +188,30 @@ class Forest2D():
         # assemble arrays of all tree coordinates and radii
         xy = np.vstack([t.xy for t in self.trees])
         r = np.array([self.rootR[t.size_ix] for t in self.trees])
-        if not 'overlapArea' in self.__dict__.keys():
-            self.overlapArea = np.zeros(r.size * (r.size-1) // 2) - 1
-        assert self.overlapArea.size==(r.size * (r.size-1) // 2), (self.overlapArea.size, (r.size * (r.size-1) // 2))
         
         # must ensure that there are at least two trees to compare
         if xy.ndim==2:
             # calculate area overlap for each pair of trees
-            jit_overlap_area_avoid_repeat(xy, r, self.overlapArea, self.L/2)
+            overlapArea = jit_overlap_area(xy, r)
 
             if run_checks:
-                if self.overlapArea.shape[0] > 1000:
+                if overlapArea.shape[0] > 1000:
                     warn("Many trees in sim. Area competition calculation will be slow.")
             
             # randomly kill trees depending on whether or not below total basal met rate
-            removeix = []
+            killedCounter = 0
             xi = self.env_rng.rvs()  # current env status
+            deathRate = self.coeffs['dep death rate'] * self.coeffs['area competition'] * dt
+            area = np.pi * r**2
             for i, tree in enumerate(self.trees):  # size compartments
-                area = np.pi * r[i]**2
-
                 # as an indpt pair approx just sum over all overlapping areas
                 # technically, one should consider areas where multiple trees overlap as different
-                dresource = (area - self.overlapArea[row_ix_from_utri(i, r.size)].sum() *
-                             self.coeffs['sharing fraction'] ) * self.coeffs['resource efficiency']
-                if (self.basalMetRate[tree.size_ix] > (dresource / xi) and
-                    self.rng.rand() < (self.coeffs['dep death rate']*self.coeffs['area competition']*dt)):
-                    # remove identified tree from the ith tree size class
-                    self.deadTrees.append( self.trees.pop(i-len(removeix)) )
-                    removeix.append(i)
-
-            for i, ix in enumerate(removeix):
-                self.overlapArea = delete_flat_dist_rowcol(self.overlapArea, ix-i,
-                                                           len(self.trees) + len(removeix) - i)
-
-            assert self.overlapArea.size==(len(self.trees) * (len(self.trees)-1) // 2)
+                dresource = (area[i] - overlapArea[row_ix_from_utri(i, r.size)].sum() *
+                             self.coeffs['sharing fraction']) * self.coeffs['resource efficiency']
+                if ((self.basalMetRate[tree.size_ix] > (dresource / xi)) and (self.rng.rand() < deathRate)):
+                        # remove identified tree from the ith tree size class
+                        self.deadTrees.append( self.trees.pop(i-killedCounter).kill(self.t) )
+                        killedCounter += 1
 
     def compete_light(self, dt=1, run_checks=False, **kwargs):
         """Play out light area competition between trees to kill trees.
@@ -315,7 +272,7 @@ class Forest2D():
         ndarray
         """
         
-        nk = np.zeros(self.kmax, dtype=int)
+        nk = np.zeros(self.kmax+1, dtype=int)
         for tree in self.trees:
             nk[tree.size_ix] += 1
         return nk
@@ -350,7 +307,7 @@ class Forest2D():
         
         if n_forests==1:
             t = np.zeros(n_sample)
-            nk = np.zeros((n_sample, self.kmax))
+            nk = np.zeros((n_sample, self.kmax+1))
             i = 0
             counter = 0  # for no. of samples saved
             while counter < n_sample:
@@ -364,9 +321,9 @@ class Forest2D():
                 self.grow(dt, **kwargs)
                 self.kill(dt, **kwargs)
                 if self.coeffs['area competition'] and len(self.trees):
-                    self.compete_area(dt, **kwargs)
+                    self.compete_area(dt)
                 if self.coeffs['light competition'] and len(self.trees):
-                    self.compete_light(dt, **kwargs)
+                    self.compete_light(dt)
 
                 i += 1
                 
@@ -421,36 +378,32 @@ class Forest2D():
             all_trees = self.trees
         if fig is None:
             fig = plt.figure(**fig_kw)
-        if class_ix is None:
-            class_ix = list(range(len(all_trees)))
         ax = fig.add_subplot(1,1,1)
         
         # canopy area
         if show_canopy:
             patches = []
-            for i, trees in enumerate(all_trees):
-                if i in class_ix:
-                    for xy, t in zip(*trees):
-                        patches.append(Circle(xy, self.rRange[i] * self.coeffs['canopy'], ec='k'))
+            for tree in all_trees:
+                xy = tree.xy
+                ix = tree.size_ix
+                patches.append(Circle(xy, self.rRange[ix] * np.sqrt(self.coeffs['canopy']), ec='k'))
             pcollection = PatchCollection(patches, facecolors='green', alpha=.2)
             ax.add_collection(pcollection)
 
         # root area
         if show_root:
             patches = []
-            for i, trees in enumerate(all_trees):
-                if i in class_ix:
-                    for xy, t in zip(*trees):
-                        patches.append(Circle(xy, self.rootR[i]))
+            for tree in all_trees:
+                xy = tree.xy
+                ix = tree.size_ix
+                patches.append(Circle(xy, np.sqrt(self.coeffs['root'] * np.pi) * self.rootR[ix]))
             pcollection = PatchCollection(patches, facecolors='brown', alpha=.15)
             ax.add_collection(pcollection)
 
         # centers
         if show_center:
-            for i, trees in enumerate(all_trees):
-                if len(trees[0]) and i in class_ix:
-                    xy = np.vstack(trees[0])
-                    ax.plot(xy[:,0], xy[:,1], 'k.', ms=2)
+            xy = np.vstack([t.xy for xy in self.trees])
+            ax.plot(xy[:,0], xy[:,1], 'k.', ms=2)
         
         # plot settings
         ax.set(xlim=(0, self.L), ylim=(0, self.L), **plot_kw)
@@ -507,6 +460,7 @@ class Tree():
     
     def kill(self, t):
         self.t = t
+        return self
 
     def copy(self):
         tree = Tree(self.xy, self.t0)
@@ -591,12 +545,13 @@ def jit_overlap_area(xy, r):
     counter = 0
     for i in range(r.size-1):
         for j in range(i+1, r.size):
-            overlapArea[counter] = overlap_area(xy[i], r[i], xy[j], r[j])
+            d = np.sqrt((xy[i,0]-xy[j,0])**2 + (xy[i,1]-xy[j,1])**2)
+            overlapArea[counter] = overlap_area(d, r[i], r[j])
             counter += 1
    
     return overlapArea
 
-#@njit
+@njit
 def jit_overlap_area_avoid_repeat(xy, r, overlapArea, maxd):
     """Calculate area overlap for each pair of trees.
 
@@ -620,14 +575,13 @@ def jit_overlap_area_avoid_repeat(xy, r, overlapArea, maxd):
     counter = 0
     for i in range(r.size-1):
         for j in range(i+1, r.size):
-            if overlapArea[counter]==-1.:
-                d = np.sqrt((xy[i,0]-xy[j,0])**2 + (xy[i,1]-xy[j,1])**2)
+            d = np.sqrt((xy[i,0]-xy[j,0])**2 + (xy[i,1]-xy[j,1])**2)
 
-                # if far apart, avoid calculation
-                if d>=maxd:
-                    overlapArea[counter] = np.inf
-                else:
-                    overlapArea[counter] = overlap_area(d, r[i], r[j])
+            # if far apart, avoid calculation
+            if d>=maxd:
+                overlapArea[counter] = 0
+            else:
+                overlapArea[counter] = overlap_area(d, r[i], r[j])
             counter += 1
    
     return overlapArea
