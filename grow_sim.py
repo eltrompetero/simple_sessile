@@ -402,7 +402,7 @@ class Forest2D():
 
         # centers
         if show_center:
-            xy = np.vstack([t.xy for xy in self.trees])
+            xy = np.vstack([t.xy for t in self.trees])
             ax.plot(xy[:,0], xy[:,1], 'k.', ms=2)
         
         # plot settings
