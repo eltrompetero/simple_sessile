@@ -140,10 +140,10 @@ class Forest2D():
 
         for i, tree in enumerate(self.trees):
             # probability that tree of given size class should grow
+            # cutoff for large trees should be determined by metabolic limits and not here
+            # (i.e. the sim boundaries should effectively extend to infinity)
             if r[i] <= (self.growRate[tree.size_ix] * dt):
-                if tree.size_ix == self.kmax:
-                    removeix.append(i)
-                else:
+                if tree.size_ix < self.kmax:
                     tree.grow()
 
         counter = 0
@@ -403,7 +403,8 @@ class Forest2D():
             for tree in all_trees:
                 xy = tree.xy
                 ix = tree.size_ix
-                patches.append(Circle(xy, self.rRange[ix] * np.sqrt(self.coeffs['canopy']), ec='k'))
+                if class_ix is None or ix in class_ix:
+                    patches.append(Circle(xy, self.rRange[ix] * np.sqrt(self.coeffs['canopy']), ec='k'))
             pcollection = PatchCollection(patches, facecolors='green', alpha=.2)
             ax.add_collection(pcollection)
 
@@ -413,13 +414,17 @@ class Forest2D():
             for tree in all_trees:
                 xy = tree.xy
                 ix = tree.size_ix
-                patches.append(Circle(xy, np.sqrt(self.coeffs['root'] * np.pi) * self.rootR[ix]))
+                if class_ix is None or ix in class_ix:
+                    patches.append(Circle(xy, np.sqrt(self.coeffs['root'] * np.pi) * self.rootR[ix]))
             pcollection = PatchCollection(patches, facecolors='brown', alpha=.15)
             ax.add_collection(pcollection)
 
         # centers
         if show_center:
-            xy = np.vstack([t.xy for t in self.trees])
+            if class_ix is None:
+                xy = np.vstack([t.xy for t in all_trees])
+            else:
+                xy = np.vstack([t.xy for t in all_trees if t.size_ix in class_ix])
             ax.plot(xy[:,0], xy[:,1], 'k.', ms=2)
         
         # plot settings
@@ -428,6 +433,7 @@ class Forest2D():
         if not ax_given:
             return fig
 #end Forest2D
+
 
 
 class LogForest2D(Forest2D):
