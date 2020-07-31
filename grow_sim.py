@@ -203,9 +203,10 @@ class Forest2D():
             xi = self.env_rng.rvs()  # current env status
             deathRate = self.coeffs['dep death rate'] * self.coeffs['area competition'] * dt
             area = np.pi * r**2
-            for i, tree in enumerate(self.trees):  # size compartments
+            for i, tree in enumerate(self.trees):
                 # as an indpt pair approx just sum over all overlapping areas
-                # technically, one should consider areas where multiple trees overlap as different
+                # to be precise, one should consider areas where multiple trees overlap as different, but
+                # these correspond to high order interactions
                 dresource = (area[i] - overlapArea[row_ix_from_utri(i, r.size)].sum() *
                              self.coeffs['sharing fraction']) * self.coeffs['resource efficiency']
                 if ((self.basalMetRate[tree.size_ix] > (dresource / xi)) and (self.rng.rand() < deathRate)):
@@ -277,7 +278,12 @@ class Forest2D():
             nk[tree.size_ix] += 1
         return nk
     
-    def sample(self, n_sample, dt=1, sample_dt=1, n_forests=1, return_trees=False,
+    def sample(self, n_sample,
+               dt=1,
+               sample_dt=1,
+               n_forests=1,
+               return_trees=False,
+               n_cpus=None,
                **kwargs):
         """Sample system.
         
@@ -293,6 +299,7 @@ class Forest2D():
         n_forests : int, 1
             If greater than 1, sample multiple random forests at once.
         return_trees : bool, False
+        n_cpus : int, None
         **kwargs
         
         Returns
@@ -326,7 +333,9 @@ class Forest2D():
                     self.compete_light(dt)
 
                 i += 1
-                
+            
+            if return_trees:
+                return nk, t, self.rRange, self.trees
             return nk, t, self.rRange
 
         def loop_wrapper(args):
@@ -352,6 +361,7 @@ class Forest2D():
              all_trees=None,
              fig=None,
              fig_kw={'figsize':(6,6)},
+             ax=None,
              plot_kw={},
              class_ix=None,
              show_canopy=True,
@@ -363,6 +373,8 @@ class Forest2D():
         all_trees : list, None
         fig : matplotlib.Figure, None
         fig_kw : dict, {'figsize':(6,6)}
+        ax: mpl.Axes, None
+        plot_kw : dict, {}
         class_ix : list, None
             Tree compartment indices to show.
         show_canopy : bool, True
@@ -371,14 +383,19 @@ class Forest2D():
 
         Returns
         -------
-        matplotlib.Figure
+        matplotlib.Figure (optional)
+            Only returned if ax was not given.
         """
         
         if all_trees is None:
             all_trees = self.trees
-        if fig is None:
-            fig = plt.figure(**fig_kw)
-        ax = fig.add_subplot(1,1,1)
+        if ax is None:
+            if fig is None:
+                fig = plt.figure(**fig_kw)
+            ax = fig.add_subplot(1,1,1)
+            ax_given = False
+        else:
+            ax_given = True
         
         # canopy area
         if show_canopy:
@@ -407,8 +424,9 @@ class Forest2D():
         
         # plot settings
         ax.set(xlim=(0, self.L), ylim=(0, self.L), **plot_kw)
-
-        return fig
+        
+        if not ax_given:
+            return fig
 #end Forest2D
 
 
