@@ -4,6 +4,7 @@
 # ====================================================================================== #
 from .utils import *
 from itertools import combinations
+from scipy.integrate import quad
 
 
 
@@ -14,3 +15,7 @@ def test_row_ix_from_utri():
             ix = row_ix_from_utri(i, n)
         for ix_ in ix:
             assert i in pairs[ix_], (i, pairs[ix_])
+
+def test_nn_p():
+    assert np.isclose(quad(nn_p(1000, 10), 0, np.inf)[0], 1)
+    assert np.isclose(quad(nn_p(1000, 10, True), 0, np.inf)[0], 1)
