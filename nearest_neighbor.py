@@ -127,7 +127,7 @@ def kl(r_sample, N, boundaries, bin_width):
     """
     
     bins = np.arange(int(np.ceil(r_sample.max() / bin_width))+1) * bin_width
-    binCenters = (bins[1:]+bins[:-1]) / 2
+    binCenters = (bins[1:] + bins[:-1]) / 2
 
     ix = np.digitize(r_sample, bins) - 1
     epdf = np.bincount(ix)
