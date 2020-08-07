@@ -324,9 +324,10 @@ class Forest2D():
                     t[counter] = dt * i
                     nk[counter] = self.nk()
                     counter += 1
-
+                
                 self.grow(dt, **kwargs)
-                self.kill(dt, **kwargs)
+                if self.coeffs['death']:
+                    self.kill(dt, **kwargs)
                 if self.coeffs['area competition'] and len(self.trees):
                     self.compete_area(dt)
                 if self.coeffs['light competition'] and len(self.trees):

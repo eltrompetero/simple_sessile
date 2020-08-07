@@ -137,3 +137,43 @@ def kl(r_sample, N, boundaries, bin_width):
     p = pdf(N, boundaries)
     
     return np.nansum(epdf * (np.log2(epdf) - np.log2(p(binCenters) * bin_width)))
+
+def pair_correlation(xy, bins=None, bounding_box=None):
+    """
+    Parameters
+    ----------
+    xy : ndarray
+    bins : ndarray
+    bounding_box : tuple, None
+        Specify bottom left hand corner and then width and height.
+    
+    Returns
+    -------
+    ndarray
+        Correlation function.
+    ndarray
+        Distance.
+    """
+    
+    dr = pdist(xy)
+    dr = squareform(dr)
+    
+    if not bounding_box is None:
+        assert len(bounding_box)==4
+        x0, x1 = bounding_box[0], bounding_box[0] + bounding_box[2]
+        y0, y1 = bounding_box[1], bounding_box[1] + bounding_box[3]
+        
+        # only keep elements from center of box
+        selectix = (xy[:,0]>x0) & (xy[:,0]<x1) & (xy[:,1]>y0) & (xy[:,1]<y1)
+        dr = dr[selectix]
+    dr = dr.ravel()
+    
+    if bins is None:
+        p, bins = np.histogram(dr, bins=np.linspace(0, dr.max(), int(np.sqrt(dr.size))))
+    else:
+        p, bins = np.histogram(dr, bins=bins)
+        
+    p = p / p[0]
+    r = (bins[1:] + bins[:-1]) / 2
+    
+    return p, r
