@@ -24,9 +24,9 @@ class Forest2D():
         r_range : ndarray
             Bins for radius.
         coeffs : dict
-            Coefficients controlling how radius gets converted into other 
-            measurements via allometric scaling.
-            'root' : root length
+            Coefficients parameterizing unit conversions. Note that these should be given
+            in the same way as the Mathematica simulation. They are converted to the units
+            used in this simulation in .setup_bin_params().
         nu : float, 2
             Exponent for fluctuations in environment.
         tol : float, .1
@@ -70,10 +70,10 @@ class Forest2D():
         self.dx = rRange[1] - rRange[0]  # assuming linearly spaced bins
         
         # root areas
-        self.rootR = coeffs['root'] * rRange**(2/3)
+        self.rootR = np.sqrt(coeffs.get('root', 0) / np.pi) * rRange**(2/3)
 
         # canopy area
-        self.canopyR = coeffs.get('canopy r', 0) * rRange**(3/4)
+        self.canopyR = np.sqrt(coeffs.get('canopy r', 0) / np.pi) * rRange
 
         # canopy height
         self.canopyH = coeffs.get('canopy h', 0) * rRange**(2/3)
@@ -86,6 +86,13 @@ class Forest2D():
 
         # basal metabolic rate
         self.basalMetRate = coeffs.get('basal', 0) * rRange**1.8
+
+        # light attenuation function (typically exponential or Theta function)
+        if coeffs.get('ldecay type','theta')=='theta':
+            self.ldecay_f = np.vectorize(lambda thisdh: 1 if thisdh>=coeffs['ldecay length'] else 0)
+        elif coeffs['ldecay type']=='exp':
+            self.ldecay_f = lambda dh: 1 - np.exp(-coeffs['ldecay length'] * dh)
+        else: raise NotImplementedError("Unrecognized light attenuation function.")
 
         if not 'area competition' in coeffs.keys():
             coeffs['area competition'] = 0.
@@ -222,21 +229,20 @@ class Forest2D():
         dt : float, 1.
             Time step.
         run_checks : bool, False
+        **kwargs
+
+        Returns
+        -------
+        None
         """
         
-        # needs updating for tree object-based implementation
-        raise NotImplementedError
-
         # assemble arrays of all tree coordinates and radii
-        xy = np.vstack([t[0] for t in self.trees if len(t[0])])
-        r = np.concatenate([[self.canopyR[i]]*len(t[0])
-                             for i, t in enumerate(self.trees)])
-        h = np.concatenate([[self.canopyH[i]]*len(t[0])
-                             for i, t in enumerate(self.trees)])
-        if run_checks:
-            assert len(xy)==len(r)==len(h)
+        xy = np.vstack([t.xy for t in self.trees])
+        r = np.array([self.canopyR[t.size_ix] for t in self.trees])
+        h = np.array([self.canopyH[t.size_ix] for t in self.trees])
         
         # calculate area overlap for each pair of trees
+        # this returns a vector version of symmetric square matrix
         overlapArea = jit_overlap_area(xy, r)
         # turn this overlap area into a competition rate
         overlapArea *= self.coeffs['light competition'] * dt
@@ -248,22 +254,16 @@ class Forest2D():
                 warn("Competition rate could exceed rate tolerance limit. Recommend shrinking dt.")
 
         # randomly kill trees with rate proportional to overlap and height diff
-        counter = 0
-        for i, trees in enumerate(self.trees):  # size compartments
-            killedCounter = 0
-            for j in range(len(trees[0])):  # trees within each compartment
-                # height difference between trees
-                dh = np.delete(h - h[counter], counter)
-                dh[dh<0] = 0
-                competeFactor = (overlapArea[row_ix_from_utri(counter, r.size)] * 
-                                 (1 - np.exp(-self.coeffs['light atten'] * dh)))
+        killedCounter = 0
+        for i, trees in enumerate(self.trees):
+            dh = np.delete(h - h[i], i)  # height difference between trees except with self
+            dh[dh<0] = 0
+            competeFactor = overlapArea[row_ix_from_utri(i, r.size)] * self.ldecay_f(dh)
 
-                if (self.rng.rand(r.size-1) < competeFactor).any():
-                    # remove identified trees from the ith tree size class
-                    self.trees[i][0].pop(j-killedCounter)
-                    self.trees[i][1].pop(j-killedCounter)
-                    killedCounter += 1
-                counter += 1
+            if self.rng.rand() < competeFactor.sum():
+                # remove identified trees from the ith tree size class
+                self.deadTrees.append( self.trees.pop(i-killedCounter).kill(self.t) )
+                killedCounter += 1
  
     def nk(self):
         """Population count per size class.
@@ -405,7 +405,7 @@ class Forest2D():
                 xy = tree.xy
                 ix = tree.size_ix
                 if class_ix is None or ix in class_ix:
-                    patches.append(Circle(xy, self.rRange[ix] * np.sqrt(self.coeffs['canopy']), ec='k'))
+                    patches.append(Circle(xy, self.canopyR[ix], ec='k'))
             pcollection = PatchCollection(patches, facecolors='green', alpha=.2)
             ax.add_collection(pcollection)
 
@@ -416,7 +416,7 @@ class Forest2D():
                 xy = tree.xy
                 ix = tree.size_ix
                 if class_ix is None or ix in class_ix:
-                    patches.append(Circle(xy, np.sqrt(self.coeffs['root'] * np.pi) * self.rootR[ix]))
+                    patches.append(Circle(xy, self.rootR[ix]))
             pcollection = PatchCollection(patches, facecolors='brown', alpha=.15)
             ax.add_collection(pcollection)
 
