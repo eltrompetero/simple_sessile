@@ -155,6 +155,8 @@ class Forest2D():
             if r[i] <= (self.growRate[tree.size_ix] * dt):
                 if tree.size_ix < self.kmax:
                     tree.grow()
+                else:
+                    warn("Largest tree has reached max bin. Recommend increasing size range.")
 
         counter = 0
         for ix in removeix:

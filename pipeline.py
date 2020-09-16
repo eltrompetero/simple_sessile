@@ -5,6 +5,7 @@
 from .utils import *
 from .grow_sim import Forest2D
 import pandas as pd
+from workspace.utils import save_pickle
 
 
 
@@ -13,7 +14,7 @@ def WEB_transience():
     g0 = 1000
     L = 10
     nSample = 200
-    nForests = 40
+    nForests = 5
 
     cm = .5
     cg = .3
