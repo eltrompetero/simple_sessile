@@ -147,8 +147,11 @@ class Forest2D():
 
         for i, tree in enumerate(self.trees):
             # probability that tree of given size class should grow
-            # cutoff for large trees should be determined by metabolic limits and not here
-            # (i.e. the sim boundaries should effectively extend to infinity)
+            # there is choice for the dynamics of the largest trees, i.e. they can
+            # disappear once they reach max size or they could persist til metabolic or
+            # competitive death
+            # To be done properly, the sim boundaries should effectively extend to
+            # infinity, but is hard to do in some cases.
             if r[i] <= (self.growRate[tree.size_ix] * dt):
                 if tree.size_ix < self.kmax:
                     tree.grow()
