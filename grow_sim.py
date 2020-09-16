@@ -89,9 +89,9 @@ class Forest2D():
 
         # light attenuation function (typically exponential or Theta function)
         if coeffs.get('ldecay type','theta')=='theta':
-            self.ldecay_f = np.vectorize(lambda thisdh: 1 if thisdh>=coeffs['ldecay length'] else 0)
+            self.ldecay_f = lambda dh: np.heaviside(dh-coeffs['ldecay length'], 0)
         elif coeffs['ldecay type']=='exp':
-            self.ldecay_f = lambda dh: 1 - np.exp(-coeffs['ldecay length'] * dh)
+            self.ldecay_f = lambda dh: 1 - np.exp(-coeffs['ldecay length'] * np.clip(dh, 0, np.inf))
         else: raise NotImplementedError("Unrecognized light attenuation function.")
 
         if not 'area competition' in coeffs.keys():
@@ -262,7 +262,6 @@ class Forest2D():
         killedCounter = 0
         for i, trees in enumerate(self.trees):
             dh = np.delete(h - h[i], i)  # height difference between trees except with self
-            dh[dh<0] = 0
             competeFactor = overlapArea[row_ix_from_utri(i, r.size)] * self.ldecay_f(dh)
 
             if self.rng.rand() < competeFactor.sum():
