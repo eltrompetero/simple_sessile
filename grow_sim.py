@@ -319,6 +319,8 @@ class Forest2D():
         if n_forests==1:
             t = np.zeros(n_sample)
             nk = np.zeros((n_sample, self.kmax+1))
+            trees = []
+
             i = 0
             counter = 0  # for no. of samples saved
             while counter < n_sample:
@@ -327,6 +329,8 @@ class Forest2D():
                 if (i - counter * sample_dt / dt + 1e-15)>=0:
                     t[counter] = dt * i
                     nk[counter] = self.nk()
+                    if return_trees:
+                        trees.append([tree.copy() for tree in self.trees])
                     counter += 1
                 
                 self.grow(dt, **kwargs)
@@ -340,17 +344,22 @@ class Forest2D():
                 i += 1
             
             if return_trees:
-                return nk, t, self.rRange, self.trees
+                return nk, t, self.rRange, trees
             return nk, t, self.rRange
 
         def loop_wrapper(args):
+            # create a new forest with same parameters
             forest = Forest2D(self.L, self.g0, self.rRange, self.coeffs, self.nu)
-            nk, t, rk = forest.sample(n_sample, dt, sample_dt, **kwargs)
-            return nk, t, rk, forest.trees
+            if return_trees:
+                return forest.sample(n_sample, dt, sample_dt, return_trees=True, **kwargs)
+            return forest.sample(n_sample, dt, sample_dt, **kwargs)
 
         with threadpool_limits(limits=1, user_api='blas'):
             with Pool(cpu_count()-1) as pool:
-                nk, t, rk, trees = list(zip(*pool.map(loop_wrapper, range(n_forests))))
+                if return_trees:
+                    nk, t, rk, trees = list(zip(*pool.map(loop_wrapper, range(n_forests))))
+                else:
+                    nk, t, rk = list(zip(*pool.map(loop_wrapper, range(n_forests))))
 
         if return_trees:
             return nk, t, rk, trees

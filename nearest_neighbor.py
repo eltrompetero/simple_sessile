@@ -3,6 +3,7 @@
 # Author : Eddie Lee, edlee@santafe.edu
 # ====================================================================================== #
 from .utils import *
+from warnings import warn
 
 
 
@@ -157,6 +158,11 @@ def interp_dkl(bindx, dkl, tol=1e-2,
 
     Returns
     -------
+    ndarray
+        Coefficients of fit. Last entry is log of the estimated DKL.
+    dict (optional)
+        Full solution from scipy.optimize.minimize.
+    ndarray (optional)
     """
 
     from scipy.optimize import minimize
@@ -168,9 +174,11 @@ def interp_dkl(bindx, dkl, tol=1e-2,
     def fit_log(x, y):
         def cost(args):
             a, b, c = args
-            yhat = a * np.log(x) * (1 + b/x) + c
+            yhat = -np.exp(a) * np.log(x) * (1 + b/x) + np.exp(c)
             return ((1/yhat - 1/y)**2).sum()
-        return minimize(cost, (-.01, 0, y.min()), **kwargs)
+            #yhat = -np.exp(a) * (1 + b/x)
+            #return ((yhat - (y-np.exp(c))/np.log(x))**2).sum()
+        return minimize(cost, (-2, 0, np.log(y.min())), **kwargs)
 
     soln = fit_log(bindx, dkl)
     lowOrder_ab = soln['x']
@@ -178,26 +186,39 @@ def interp_dkl(bindx, dkl, tol=1e-2,
         if return_all:
             return lowOrder_ab, soln
         return lowOrder_ab
-
     
-    # higher order fit to order dx**-2
+    # higher order fit to order dx**-2 (this may not work)
+    def neg_der_check(x, args):
+        """Return True if all good."""
+        a, b, c, d = args
+        return (((x**2 + b*x + c) - np.log(x) * (b*x + 2*c)) >= 0).all()
+
     def fit_log(x, y):
         def cost(args):
             a, b, c, d = args
-            yhat = a * np.log(x) * (1 + b/x + c/x**2) + d
+            yhat = -np.exp(a) * np.log(x) * (1 + b/x + c/x**2) + np.exp(d)
             # make sure that yhat is ordered...this can inhibit good solution finding
-            #if not (np.diff(yhat)<=0).all():
+            #if not neg_der_check(x, args):
             #    return 1e30
             return ((1/yhat - 1/y)**2).sum()
-        return minimize(cost, (lowOrder_ab[0], lowOrder_ab[1], 0, lowOrder_ab[-1]), **kwargs)
+        guess = (lowOrder_ab[0], lowOrder_ab[1], 0, lowOrder_ab[-1])
+        if not neg_der_check(x, guess):
+            c = 0
+            xmx = bindx.max()
+            assert (xmx - xmx * np.log(xmx))>0
+            b = -xmx**2 / (xmx - xmx * np.log(xmx)) + .1
+            guess = guess[0], b, c, guess[-1]
+            assert neg_der_check(x, guess)
+        return minimize(cost, guess, **kwargs)
 
     soln = fit_log(bindx, dkl)
 
     # check solution for monotonicity
-    a, b, c, d = soln['x']
-    yhat = a * np.log(bindx) * (1 + b/bindx + c/bindx**2) + d
-    if not (np.diff(yhat)<=0).all():
-        raise Exception
+    if not neg_der_check(bindx, soln['x']):
+        warn("Bad higher order soln.")
+        if return_all:
+            return lowOrder_ab, soln
+        return lowOrder_ab
 
     if return_all:
         return soln['x'], soln, lowOrder_ab
