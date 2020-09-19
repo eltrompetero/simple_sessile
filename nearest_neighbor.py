@@ -174,10 +174,10 @@ def interp_dkl(bindx, dkl, tol=1e-2,
     def fit_log(x, y):
         def cost(args):
             a, b, c = args
+            #yhat = -np.exp(a) * np.log(x) * (1 + b*x) + np.exp(c)
+            #return ((yhat - y)**2).sum()
             yhat = -np.exp(a) * np.log(x) * (1 + b/x) + np.exp(c)
             return ((1/yhat - 1/y)**2).sum()
-            #yhat = -np.exp(a) * (1 + b/x)
-            #return ((yhat - (y-np.exp(c))/np.log(x))**2).sum()
         return minimize(cost, (-2, 0, np.log(y.min())), **kwargs)
 
     soln = fit_log(bindx, dkl)
@@ -226,7 +226,7 @@ def interp_dkl(bindx, dkl, tol=1e-2,
 
 def pair_correlation(xy, bins=None, bounding_box=None):
     """Correlation function between all points within bounding box to all neighbors.
-    <n(dr)>, average no. of neighbors at distance dr. 
+    <n(dr)>/N, normalized no. of neighbors at distance dr. 
 
     Parameters
     ----------
@@ -243,6 +243,7 @@ def pair_correlation(xy, bins=None, bounding_box=None):
         Distance.
     """
     
+    # construct pairwise distance matrix
     dr = pdist(xy)
     dr = squareform(dr)
     
@@ -254,14 +255,18 @@ def pair_correlation(xy, bins=None, bounding_box=None):
         # only keep elements from center of box
         selectix = (xy[:,0]>x0) & (xy[:,0]<x1) & (xy[:,1]>y0) & (xy[:,1]<y1)
         dr = dr[selectix]
+
+    density = len(dr) / (bounding_box[2] * bounding_box[3])  # points per bounding area
+    avgdist = np.sqrt( 1 / (np.pi * density) )  # typical distance between two nearest pts
     dr = dr.ravel()
+    dr /= avgdist  # rescale by typical distance
     
     if bins is None:
         p, bins = np.histogram(dr, bins=np.linspace(0, dr.max(), int(np.sqrt(dr.size))))
     else:
         p, bins = np.histogram(dr, bins=bins)
-        
-    p = p / p[0]
+
     r = (bins[1:] + bins[:-1]) / 2
+    p = p / p[0]
     
     return p, r

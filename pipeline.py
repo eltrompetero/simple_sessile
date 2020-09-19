@@ -53,7 +53,7 @@ def WEB_transience():
 def phase_space_scan():
     # Scanning across natural mortality rate Abar.
     AbarRange = np.linspace(.75, 0, 5)  # keys to xy dict
-    areaDeathRateRange = np.logspace(-1, 2, 10)  # keys to dicts in xy
+    areaDeathRateRange = np.logspace(-3, 2, 10)  # keys to dicts in xy
 
     # set up
     r0 = 1
@@ -65,14 +65,14 @@ def phase_space_scan():
     g0 = 100
     L = 200
     burnIn = 400
-    sampleSize = 1_000
+    sampleSize = 100
     dt = .1
     coeffs = {'root':10,
               'canopy':1,
               'grow':cg,
               'area competition':1,
               'basal':basal,
-              'sharing fraction':.5,
+              'sharing fraction':1,
               'resource efficiency':2}
 
     def loop_Abar(Abar):
@@ -97,7 +97,7 @@ def phase_space_scan():
             # get tree coordinates
             xy = [np.vstack([tree.xy for tree in thisTrees]) for thisTrees in trees]
             
-            print(f'Done with {deathRate=:.2f}.')
+            print(f'Done with {deathRate=:.3f}.')
             return xy, nk
 
         with threadpool_limits(user_api='blas', limits=1):
