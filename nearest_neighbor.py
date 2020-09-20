@@ -8,7 +8,7 @@ from warnings import warn
 
 
 def dist(xy):
-    """Find distances to nearest neighbors in tree plot.
+    """Find distances to nearest neighbors amongst a set of 2d points.
 
     Parameters
     ----------

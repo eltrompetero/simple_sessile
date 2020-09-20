@@ -53,7 +53,7 @@ def WEB_transience():
 def phase_space_scan():
     # Scanning across natural mortality rate Abar.
     AbarRange = np.linspace(.75, 0, 5)  # keys to xy dict
-    areaDeathRateRange = np.logspace(-3, 2, 10)  # keys to dicts in xy
+    areaDeathRateRange = np.logspace(-1, 2, 10)  # keys to dicts in xy
 
     # set up
     r0 = 1
@@ -117,3 +117,77 @@ def phase_space_scan():
                     'cache/phase_space_scan_Abar.p', True)
         print(f'Done with {Abar=}.')
         print('')
+
+def hex_packing():
+    """Hexagonal packing emerging from strong rate competition.
+    """
+    from .nearest_neighbor import pair_correlation
+
+    # for showing the spatial distributions
+    areaDeathRateRange = np.logspace(-1, 3, 10)  # keys to dicts in xy
+
+    # set up
+    r0 = 1
+    basal = 0
+
+    rRange = np.linspace(r0, 5, 5)  # growth saturates 
+    g0 = 100
+    L = 200
+    burnIn = 1_000  # in time steps
+    sampleSize = 1_000
+    dt = .2
+    coeffs = {'root':10,
+              'death':0,
+              'grow':.3,
+              'area competition':1,
+              'basal':basal,
+              'sharing fraction':1,
+              'resource efficiency':2}
+
+    def loop_wrapper(deathRate):
+        coeffs['dep death rate'] = deathRate
+        forest = Forest2D(L, g0, rRange, coeffs)
+        forest.check_dt(dt)
+
+        # burn in and run sim
+        forest.sample(2, dt=dt, sample_dt=burnIn)
+        nk, t, rk, trees = forest.sample(sampleSize, dt=dt, sample_dt=10, return_trees=True)
+
+        # get tree coordinates
+        xy = [np.vstack([tree.xy for tree in thisTrees]) for thisTrees in trees]
+
+        print(f'Done with {deathRate=:.2f}.')
+        return xy, nk
+
+    with threadpool_limits(user_api='blas', limits=1):
+        with Pool(cpu_count()-1) as pool:
+            xy_, nk_ = list(zip(*pool.map(loop_wrapper, areaDeathRateRange)))
+            xy = dict(zip(areaDeathRateRange, xy_))
+            nk = dict(zip(areaDeathRateRange, nk_))
+
+    save_pickle(['areaDeathRateRange','r0','basal','rRange',
+                 'g0','L','burnIn','sampleSize','dt','coeffs','xy','nk'],
+                'cache/packing_example.p', True)
+    
+    # for plotting the correlation fcn
+    allxy = xy
+    p = {}
+    bins = np.linspace(0, 5, 40)  # this should be roughly aligned with the stats of the system
+    for adr in areaDeathRateRange:
+        # fix natural mortality and titrate strength of competition
+        xy = allxy[adr]
+
+        # iterate through each random plot
+        thisp = []
+        r = []
+        for xy_ in xy:
+            p_, r_ = pair_correlation(np.vstack(xy_), bins, (50, 50, 100, 100))
+            thisp.append(p_)
+            r.append(r_)
+
+        p[adr] = np.vstack(thisp).mean(0)
+        
+    r = r[0]  # x-axis, radial distance
+
+    save_pickle(['p','r'], 'plotting/spatial_correlation.p')
+
