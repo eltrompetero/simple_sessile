@@ -127,11 +127,9 @@ def kl(r_sample, N, boundaries, bin_width):
         Divergence in bits.
     """
     
-    bins = np.arange(int(np.ceil(r_sample.max() / bin_width))+1) * bin_width
-    binCenters = (bins[1:] + bins[:-1]) / 2
-
-    ix = np.digitize(r_sample, bins) - 1
-    epdf = np.bincount(ix)
+    ix = np.around(r_sample/bin_width).astype(int)
+    binCenters, epdf = np.unique(ix, return_counts=True)
+    binCenters = binCenters * bin_width + bin_width / 2
     epdf = epdf / epdf.sum()
     
     # analytic approx to box
@@ -173,10 +171,9 @@ def interp_dkl(bindx, dkl, tol=1e-2,
     # first fit lower order to get coefficients for higher order fit
     def fit_log(x, y):
         def cost(args):
-            a, b, c = args
             #yhat = -np.exp(a) * np.log(x) * (1 + b*x) + np.exp(c)
             #return ((yhat - y)**2).sum()
-            yhat = -np.exp(a) * np.log(x) * (1 + b/x) + np.exp(c)
+            yhat = _first_order_dkl(x, args)
             return ((1/yhat - 1/y)**2).sum()
         return minimize(cost, (-2, 0, np.log(y.min())), **kwargs)
 
@@ -196,7 +193,7 @@ def interp_dkl(bindx, dkl, tol=1e-2,
     def fit_log(x, y):
         def cost(args):
             a, b, c, d = args
-            yhat = -np.exp(a) * np.log(x) * (1 + b/x + c/x**2) + np.exp(d)
+            yhat = _second_order_dkl(x, args)
             # make sure that yhat is ordered...this can inhibit good solution finding
             #if not neg_der_check(x, args):
             #    return 1e30
@@ -223,6 +220,14 @@ def interp_dkl(bindx, dkl, tol=1e-2,
     if return_all:
         return soln['x'], soln, lowOrder_ab
     return soln['x']
+
+def _first_order_dkl(x, args):
+    a, b, c = args
+    return -np.exp(a) * np.log(x) * (1 + b/x) + np.exp(c)
+
+def _second_order_dkl(x, args):
+    a, b, c, d = args
+    return -np.exp(a) * np.log(x) * (1 + b/x + c/x**2) + np.exp(d)
 
 def pair_correlation(xy, bins=None, bounding_box=None):
     """Correlation function between all points within bounding box to all neighbors.
