@@ -119,8 +119,11 @@ def phase_space_scan_Abar():
         print('')
 
 def phase_space_scan_abar():
+    """Scanning across varying growth rate fixing natural mortality rate to 0.
+    """
+
     # for showing the spatial distributions
-    cgRange = np.logspace(log10(.5), -4, 4)
+    cgRange = np.logspace(np.log10(.5), -4, 4)
     areaDeathRateRange = np.logspace(-1, 2, 10)  # keys to dicts in xy
 
     # set up
@@ -146,13 +149,12 @@ def phase_space_scan_abar():
 
         def loop_wrapper(deathRate):
             coeffs['dep death rate'] = deathRate
-            forest = Forest2D(L, g0, rRange, coeffs,
-                              nu=nu)
+            forest = Forest2D(L, g0, rRange, coeffs)
             forest.check_dt(dt)
 
             # burn in and run sim
             if deathRate>1:
-                forest.sample(2, dt=dt, sample_dt=burnIn+800)
+                forest.sample(2, dt=dt, sample_dt=burnIn+1600)
             else:
                 forest.sample(2, dt=dt, sample_dt=burnIn)
             nk, t, rk, trees = forest.sample(sampleSize, dt=dt, sample_dt=10, return_trees=True)
@@ -175,7 +177,7 @@ def phase_space_scan_abar():
     nk = {}  # pop. number (can be used for equilibrium check)
     for cg in cgRange:
         xy[cg], nk[cg] = loop_cg(cg)
-        save_pickle(['cgRange','areaDeathRateRange','r0','cg','nu','basal','rRange',
+        save_pickle(['cgRange','areaDeathRateRange','r0','cg','basal','rRange',
                      'g0','L','burnIn','sampleSize','dt','coeffs','xy','nk'],
                     f'cache/spacing_with_cg.p', True)
         print(f'Done with {cg=}.')

@@ -230,8 +230,8 @@ def _second_order_dkl(x, args):
     return -np.exp(a) * np.log(x) * (1 + b/x + c/x**2) + np.exp(d)
 
 def pair_correlation(xy, bins=None, bounding_box=None):
-    """Correlation function between all points within bounding box to all neighbors.
-    <n(dr)>/N, normalized no. of neighbors at distance dr. 
+    """Neighbor density as a function of distance (r'-r) calculated within bounding box to
+    all neighbors.  <n(dr)>/N, normalized no. of neighbors at distance dr. 
 
     Parameters
     ----------
