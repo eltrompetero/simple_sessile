@@ -109,7 +109,7 @@ def pdf(N, boundaries, no_boundary_correction=False):
 
 def kl(r_sample, N, boundaries, bin_width):
     """Kullback-Leibler divergence estimated between estimate from the given sample and
-    the analytic approximation for a box.
+    the analytic approximation for random points placed in a box (Poisson process).
 
     Parameters
     ----------
@@ -168,57 +168,23 @@ def interp_dkl(bindx, dkl, tol=1e-2,
     bindx = bindx[sortix]
     dkl = dkl[sortix]
 
-    # first fit lower order to get coefficients for higher order fit
     def fit_log(x, y):
-        def cost(args):
-            #yhat = -np.exp(a) * np.log(x) * (1 + b*x) + np.exp(c)
-            #return ((yhat - y)**2).sum()
-            yhat = _first_order_dkl(x, args)
-            return ((1/yhat - 1/y)**2).sum()
-        return minimize(cost, (-2, 0, np.log(y.min())), **kwargs)
+       def cost(args):
+           a, b = args
+           tofitpoly = (y - np.exp(a)) / (-np.exp(b) * np.log(x))
+           pfit = np.polyfit(1/x, tofitpoly, 2)
+           return np.abs(y - np.polyval(pfit, 1/x)).sum()
+
+       soln = minimize(cost, (np.log(y.min()+1), -2), **kwargs)
+       a, b = soln['x']
+       tofitpoly = (y - np.exp(a)) / (-np.exp(b) * np.log(x))
+       soln['x'] = np.append(soln['x'], np.polyfit(1/x, tofitpoly, 2)[::-1])
+       return soln
 
     soln = fit_log(bindx, dkl)
-    lowOrder_ab = soln['x']
-    if first_order:
-        if return_all:
-            return lowOrder_ab, soln
-        return lowOrder_ab
-    
-    # higher order fit to order dx**-2 (this may not work)
-    def neg_der_check(x, args):
-        """Return True if all good."""
-        a, b, c, d = args
-        return (((x**2 + b*x + c) - np.log(x) * (b*x + 2*c)) >= 0).all()
-
-    def fit_log(x, y):
-        def cost(args):
-            a, b, c, d = args
-            yhat = _second_order_dkl(x, args)
-            # make sure that yhat is ordered...this can inhibit good solution finding
-            #if not neg_der_check(x, args):
-            #    return 1e30
-            return ((1/yhat - 1/y)**2).sum()
-        guess = (lowOrder_ab[0], lowOrder_ab[1], 0, lowOrder_ab[-1])
-        if not neg_der_check(x, guess):
-            c = 0
-            xmx = bindx.max()
-            assert (xmx - xmx * np.log(xmx))>0
-            b = -xmx**2 / (xmx - xmx * np.log(xmx)) + .1
-            guess = guess[0], b, c, guess[-1]
-            assert neg_der_check(x, guess)
-        return minimize(cost, guess, **kwargs)
-
-    soln = fit_log(bindx, dkl)
-
-    # check solution for monotonicity
-    if not neg_der_check(bindx, soln['x']):
-        warn("Bad higher order soln.")
-        if return_all:
-            return lowOrder_ab, soln
-        return lowOrder_ab
 
     if return_all:
-        return soln['x'], soln, lowOrder_ab
+        return soln['x'], soln
     return soln['x']
 
 def _first_order_dkl(x, args):
