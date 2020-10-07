@@ -140,6 +140,7 @@ def kl(r_sample, N, boundaries, bin_width):
 def interp_dkl(bindx, dkl, tol=1e-2,
                first_order=False,
                return_all=False,
+               poly_fit_order=2,
                **kwargs):
     """Interpolate DKL using expansion in terms of bin widths.
     
@@ -172,13 +173,13 @@ def interp_dkl(bindx, dkl, tol=1e-2,
        def cost(args):
            a, b = args
            tofitpoly = (y - np.exp(a)) / (-np.exp(b) * np.log(x))
-           pfit = np.polyfit(1/x, tofitpoly, 2)
+           pfit = np.polyfit(1/x, tofitpoly, poly_fit_order)
            return np.abs(y - np.polyval(pfit, 1/x)).sum()
 
        soln = minimize(cost, (np.log(y.min()+1), -2), **kwargs)
        a, b = soln['x']
        tofitpoly = (y - np.exp(a)) / (-np.exp(b) * np.log(x))
-       soln['x'] = np.append(soln['x'], np.polyfit(1/x, tofitpoly, 2)[::-1])
+       soln['x'] = np.append(soln['x'], np.polyfit(1/x, tofitpoly, poly_fit_order)[::-1])
        return soln
 
     soln = fit_log(bindx, dkl)

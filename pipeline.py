@@ -50,6 +50,121 @@ def WEB_transience():
     save_pickle(['rRange','g0','L','nSample','cm','cg','dt','t','nk','rk','forest'],
                 'cache/linear_model_exponent_transience_wide_bins.p', True)
 
+def mft_cutoff():
+    basalRange = np.array([.8, .2, .05, .0125, .003125])
+
+    # set up
+    r0 = 1
+    Abar = .5
+    cg = .3
+    nu = 2.
+
+    rRange = np.linspace(r0, 200, 1000)
+    g0 = 500
+    L = 200
+    sampleSize = 5000
+    dt = .1
+    nForests = 30
+
+    nk = {}
+    t = {}
+    rk = {}
+
+    for basal in basalRange:
+        forest = Forest2D(L, g0, rRange, 
+                          {'root':1,
+                           'canopy':1,
+                           'grow':cg,
+                           'death':Abar,
+                           'area competition':1,
+                           'basal':basal,
+                           'sharing fraction':.5,
+                           'resource efficiency':2,
+                           'dep death rate':1},
+                          nu=nu)
+        forest.check_dt(dt)
+
+        nk[basal], t[basal], rk[basal] = forest.sample(sampleSize, dt,
+                                                       sample_dt=.25,
+                                                       n_forests=nForests)
+        print(f'Done with {basal=}.')
+        
+    save_pickle(['nk','t','rk','forest','r0','g0','nu','Abar','basalRange','cg'],
+                f'cache/biomass_scaling_w_compet_{nu=}.p', True)
+
+def mft_cutoff_finite_size_checks():
+    # smaller system
+    basalRange = np.array([.8, .2, .05, .0125, .003125])
+
+    # set up
+    r0 = 1
+    Abar = .5
+    cg = .3
+    nu = 2.
+
+    rRange = np.linspace(r0, 200, 1000)
+    g0 = 500 / 4
+    L = 200 / 2
+    sampleSize = 5000
+    dt = .1
+    nForests = 30
+
+    nk = {}
+    t = {}
+    rk = {}
+
+    for basal in basalRange:
+        forest = Forest2D(L, g0, rRange, 
+                          {'root':1,
+                           'canopy':1,
+                           'grow':cg,
+                           'death':Abar,
+                           'area competition':1,
+                           'basal':basal,
+                           'sharing fraction':.5,
+                           'resource efficiency':2,
+                           'dep death rate':1},
+                          nu=nu)
+        forest.check_dt(dt)
+
+        nk[basal], t[basal], rk[basal] = forest.sample(sampleSize, dt,
+                                                       sample_dt=.25,
+                                                       n_forests=nForests)
+        print(f'Done with {basal=}.')
+        
+    save_pickle(['nk','t','rk','forest','r0','g0','nu','Abar','basalRange','cg'],
+                f'cache/biomass_scaling_w_compet_smaller_{nu=}.p', True)
+    
+    # larger system
+    g0 = 500 * 4
+    L = 200 * 2
+
+    nk = {}
+    t = {}
+    rk = {}
+
+    for basal in basalRange:
+        forest = Forest2D(L, g0, rRange, 
+                          {'root':1,
+                           'canopy':1,
+                           'grow':cg,
+                           'death':Abar,
+                           'area competition':1,
+                           'basal':basal,
+                           'sharing fraction':.5,
+                           'resource efficiency':2,
+                           'dep death rate':1},
+                          nu=nu)
+        forest.check_dt(dt)
+
+        nk[basal], t[basal], rk[basal] = forest.sample(sampleSize, dt,
+                                                       sample_dt=.25,
+                                                       n_forests=nForests)
+        print(f'Done with {basal=}.')
+        
+    save_pickle(['nk','t','rk','forest','r0','g0','nu','Abar','basalRange','cg'],
+                f'cache/biomass_scaling_w_compet_larger_{nu=}.p', True)
+
 def phase_space_scan_Abar():
     # Scanning across natural mortality rate Abar.
     AbarRange = np.linspace(.75, 0, 5)  # keys to xy dict
