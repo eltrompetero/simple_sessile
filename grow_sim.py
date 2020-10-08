@@ -591,7 +591,8 @@ def jit_overlap_area(xy, r):
 
 @njit
 def jit_overlap_area_avoid_repeat(xy, r, overlapArea, maxd):
-    """Calculate area overlap for each pair of trees.
+    """Calculate area overlap for each pair of trees. (I think this came out to be slower
+    than the simple method).
 
     Parameters
     ----------
