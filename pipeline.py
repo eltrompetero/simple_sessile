@@ -230,7 +230,9 @@ def mft_cutoff_plot(nu=2.5):
                 f'plotting/biomass_scaling_w_compet_{nu=}.p', True)
 
 def phase_space_scan_Abar():
-    # Scanning across natural mortality rate Abar.
+    """Scanning across natural mortality rate Abar as in Figure 3.
+    """
+
     AbarRange = np.linspace(.75, 0, 5)  # keys to xy dict
     areaDeathRateRange = np.logspace(-1, 2, 10)  # keys to dicts in xy
 
@@ -298,7 +300,8 @@ def phase_space_scan_Abar():
         print('')
 
 def phase_space_scan_abar():
-    """Scanning across varying growth rate fixing natural mortality rate to 0.
+    """Scanning across varying growth rate fixing natural mortality rate to 0 as in Figure
+    3.
     """
 
     # for showing the spatial distributions
@@ -363,8 +366,10 @@ def phase_space_scan_abar():
         print('')
 
 def hex_packing():
-    """Hexagonal packing emerging from strong rate competition.
+    """Hexagonal packing emerging from strong rate competition. The results from this can
+    be used to generate Figure 4D.
     """
+
     from .nearest_neighbor import pair_correlation
 
     # for showing the spatial distributions
@@ -374,7 +379,7 @@ def hex_packing():
     r0 = 1
     basal = 0
 
-    rRange = np.linspace(r0, 5, 5)  # growth saturates 
+    rRange = np.linspace(r0, 5, 5)  # growth saturates b/c max radius is 5
     g0 = 100
     L = 200
     burnIn = 1_000  # in time steps

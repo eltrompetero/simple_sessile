@@ -8,6 +8,7 @@ from matplotlib.collections import PatchCollection
 from scipy.spatial.distance import squareform
 from warnings import warn
 from misc.stats import PowerLaw
+from types import LambdaType
 from .utils import *
 
 
@@ -92,6 +93,8 @@ class Forest2D():
             self.ldecay_f = lambda dh: np.heaviside(dh-coeffs['ldecay length'], 0)
         elif coeffs['ldecay type']=='exp':
             self.ldecay_f = lambda dh: 1 - np.exp(-coeffs['ldecay length'] * np.clip(dh, 0, np.inf))
+        elif isinstance(coeffs['ldecay type'], LambdaType):
+            self.ldecay_f = coeffs['ldecay type']
         else: raise NotImplementedError("Unrecognized light attenuation function.")
 
         if not 'area competition' in coeffs.keys():
