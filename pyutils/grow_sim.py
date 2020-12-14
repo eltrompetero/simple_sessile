@@ -93,7 +93,8 @@ class Forest2D():
             self.ldecay_f = lambda dh: np.heaviside(dh-coeffs['ldecay length'], 0)
         elif coeffs['ldecay type']=='exp':
             self.ldecay_f = lambda dh: 1 - np.exp(-coeffs['ldecay length'] * np.clip(dh, 0, np.inf))
-        elif isinstance(coeffs['ldecay type'], LambdaType):
+        # if custom type is given, then make sure it's a function
+        elif isinstance(coeffs['ldecay type'], LambdaType):  
             self.ldecay_f = coeffs['ldecay type']
         else: raise NotImplementedError("Unrecognized light attenuation function.")
 
@@ -264,7 +265,7 @@ class Forest2D():
         # randomly kill trees with rate proportional to overlap and height diff
         killedCounter = 0
         for i, trees in enumerate(self.trees):
-            dh = np.delete(h - h[i], i)  # height difference between trees except with self
+            dh = np.delete(h - h[i], i)  # height difference, neighbor - self, excepting self
             competeFactor = overlapArea[row_ix_from_utri(i, r.size)] * self.ldecay_f(dh)
 
             if self.rng.rand() < competeFactor.sum():
@@ -333,7 +334,7 @@ class Forest2D():
                     t[counter] = dt * i
                     nk[counter] = self.nk()
                     if return_trees:
-                        trees.append([tree.copy() for tree in self.trees])
+                        trees.append(self.snapshot())
                     counter += 1
                 
                 self.grow(dt, **kwargs)
