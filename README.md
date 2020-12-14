@@ -1,4 +1,4 @@
-# Forest automaton simulation
+# Numerical solutions to spatial competition in sessile organisms
 #### Author: Eddie Lee, edlee@santafe.edu
 
 This is the Github code repository for the manuscript "Dynamics of growth, death, and
