@@ -1,30 +1,26 @@
 # Numerical solutions to spatial competition in sessile organisms
 #### Author: Eddie Lee, edlee@santafe.edu
 
-This is the Github code repository for the manuscript "Dynamics of growth, death, and
-competition in sessile organisms" by Edward D. Lee, Chris P. Kempes, and Geoffrey B. West.
-The preprint is located [here](https://arxiv.org/abs/2009.14699).
-
-The original code base to be published with the manuscript will be available on the Zenodo
-archive.
+This is the Github code repository for the manuscript "Growth, death, and competition in
+sessile organisms" by Edward D. Lee, Chris P. Kempes, and Geoffrey B. West.  The preprint
+is located [here](https://arxiv.org/abs/2009.14699).
 
 
 ## Installation
 You can use Anaconda to set up your Python environment to reproduce the automata
-simulation results.  First, git clone the repo and create the appropriate environment.
+simulation results. First, git clone the repo and create the appropriate environment. Note
+that the code below installs some custom modules to run.
 ```bash
 $ git clone https://github.com/eltrompetero/forests.git
+$ git clone https://github.com/eltrompetero/workspace.git
+$ git clone https://github.com/eltrompetero/misc.git
 $ conda env create -f forests/forests.yml
 $ conda activate forests
+$ mkdir cache
 ```
 This will create and activate the appropriate Anaconda environment named forests. Please
 note that this environment is optimized for an AMD processor and an Intel-based machine
 way require a different set of compiled packages.
-
-We must also create directories where the results will be saved.
-```bash
-$ mkdir cache
-```
 
 
 ## Reproduction
