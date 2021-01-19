@@ -25,12 +25,12 @@ may require a different set of compiled packages.
 
 ## Reproduction
 The code and parameter settings for simulations shown in the figures are in
-[pyutils/pipeline.py][pyutils/pipeline.py].  The figures are in
-[plotting (pnas).ipynb][plotting (pnas).ipynb].
+[pyutils/pipeline.py](pyutils/pipeline.py).  The figures are in
+[plotting (pnas).ipynb](plotting%20(pnas).ipynb).
 
-Simulation results are shown in the Jupyter notebook [plotting (pnas).ipynb][plotting
-(pnas).ipynb]. To run the notebook, the reader might run (after following the installation
-instructions above)
+Simulation results are shown in the Jupyter notebook [plotting
+(pnas).ipynb](plotting%20(pnas).ipynb). To run the notebook, the reader might run (after
+following the installation instructions above)
 ```bash
 $ jupyter notebook
 ```
