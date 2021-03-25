@@ -2,12 +2,14 @@
 #### Author: Eddie Lee, edlee@santafe.edu
 
 This is the Github code repository for the manuscript "Growth, death, and competition in
-sessile organisms" by Edward D. Lee, Chris P. Kempes, and Geoffrey B. West.  The preprint
-is located [here](https://arxiv.org/abs/2009.14699).
+sessile organisms" by Edward D. Lee, Christopher P. Kempes, and Geoffrey B. West.  The
+preprint is located [here](https://arxiv.org/abs/2009.14699).
+
+The code is distributed with an MIT license.
 
 
 ## Installation
-You can use Anaconda to set up your Python environment to reproduce the automaton
+You can use Anaconda to set up your Python 3 environment to reproduce the automaton
 simulation results. First, git clone the repo and create the appropriate environment. Note
 that the code below installs some custom modules to run.
 ```bash
@@ -17,10 +19,11 @@ $ git clone https://github.com/eltrompetero/misc.git
 $ conda env create -f forests/forests.yml
 $ conda activate forests
 $ mkdir cache
+$ mkdir plotting
 ```
-This will create and activate the appropriate Anaconda environment named forests. Please
-note that this environment is optimized for an AMD processor and an Intel-based machine
-may require a different set of compiled packages.
+This will create and activate the appropriate Anaconda environment named forests. This
+environment is optimized for an AMD processor and an Intel-based machine may require a
+different set of compiled packages.
 
 
 ## Reproduction
@@ -55,3 +58,8 @@ We used an Ubuntu system running on a system with an AMD Ryzen 7 1700 Eight-Core
 (with 16 threads) at 3.0GHz, 1.5TB of SSD space, 32GB of RAM, and 256GB of PCIe drive swap
 space, which was much more than ample to finish each individual simulation call inside
 [pipeline.py](pyutils/pipeline.py) within hours.
+
+
+## Troubleshooting
+Please open an issue on GitHub for any questions or issues. This way anybody else with a
+similar problem will be able to follow the exchange in the future.
