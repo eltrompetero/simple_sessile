@@ -95,7 +95,7 @@ def mft_cutoff(nu=2.5, nForests=30):
         nk[basal], t[basal], rk[basal] = forest.sample(sampleSize, dt,
                                                        sample_dt=.25,
                                                        n_forests=nForests)
-        save_pickle(['nk','t','rk','forest','r0','g0','nu','Abar','basalRange','cg'],
+        save_pickle(['nk','t','rk','forest','r0','g0','nu','Abar','basalRange','cg','dt'],
                     f'cache/biomass_scaling_w_compet_{nu=}.p', True)
         print(f'Done with {basal=}.')
 

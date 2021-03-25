@@ -384,7 +384,8 @@ class Forest2D():
              class_ix=None,
              show_canopy=True,
              show_root=True,
-             show_center=False):
+             show_center=False,
+             center_kw={'c':'k', 'ms':2}):
         """
         Parameters
         ----------
@@ -398,6 +399,7 @@ class Forest2D():
         show_canopy : bool, True
         show_root : bool, True
         show_center : bool, False
+        center_kw : str, {'c':'k', 'ms':2}
 
         Returns
         -------
@@ -443,7 +445,7 @@ class Forest2D():
                 xy = np.vstack([t.xy for t in all_trees])
             else:
                 xy = np.vstack([t.xy for t in all_trees if t.size_ix in class_ix])
-            ax.plot(xy[:,0], xy[:,1], 'k.', ms=2)
+            ax.plot(xy[:,0], xy[:,1], '.', **center_kw)
         
         # plot settings
         ax.set(xlim=(0, self.L), ylim=(0, self.L), **plot_kw)
