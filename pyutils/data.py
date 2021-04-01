@@ -1,5 +1,5 @@
 # ====================================================================================== #
-# Useful routines for analysis of forest data.
+# Useful routines for analysis of observational data and simulation results.
 # Author : Eddie Lee, edlee@santafe.edu
 # 
 #
@@ -25,12 +25,12 @@
 #     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #     SOFTWARE.
 # ====================================================================================== #
-from .utils import *
-from . import nearest_neighbor as nn
-import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.collections import PatchCollection
+
+from .utils import *
+from . import nearest_neighbor as nn
 
 
 
@@ -92,12 +92,16 @@ def plot(xy, rbh, L,
         return fig
 
 def namibia_corr_fcn():
+    """Calculate correlation function for Namibian termate data set from Tarnita et al.
+    """
+    
+    # load data
     df = pd.read_csv('../data/Tarnita/termite_mound_location_field_data/Namib_G1.txt',
                      sep='\t',
                      header=None)
     xy = df.values
 
-    # exclude out 100 meters from boundary of plot
+    # exclude area 100 meters in from boundaries of rectangular plot
     p, r = nn.pair_correlation(xy, np.linspace(0, 10, 50), (100, 100, 400, 400))
 
     return p, r

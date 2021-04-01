@@ -1,5 +1,5 @@
 # ====================================================================================== #
-# Forest analysis.
+# Useful functions for sessile package.
 # Author : Eddie Lee, edlee@santafe.edu
 # 
 #
@@ -26,6 +26,8 @@
 #     SOFTWARE.
 # ====================================================================================== #
 import numpy as np
+import pandas as pd
+import os
 from netCDF4 import Dataset
 from scipy.spatial.distance import pdist, squareform
 from numpy import ma

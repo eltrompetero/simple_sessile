@@ -1,5 +1,5 @@
 # ====================================================================================== #
-# Automata compartment model for forest growth.
+# Automata compartment model for sessile organism growth based on forests.
 # Author : Eddie Lee, edlee@santafe.edu
 # 
 #
@@ -32,6 +32,7 @@ from scipy.spatial.distance import squareform
 from warnings import warn
 from misc.stats import PowerLaw
 from types import LambdaType
+
 from .utils import *
 
 
@@ -332,6 +333,7 @@ class Forest2D():
         return_trees : bool, False
         n_cpus : int, None
         **kwargs
+            These go into self.grow().
         
         Returns
         -------
@@ -341,6 +343,8 @@ class Forest2D():
             Time.
         ndarray
             Compartments r_k.
+        list of list of Tree
+            For each forest, i.e. outermost list length is given by n_forests.
         """
         
         if n_forests==1:

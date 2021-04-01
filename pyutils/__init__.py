@@ -1,5 +1,5 @@
 # ====================================================================================== #
-# Module for forest data and simulations.
+# Module for sessile organism simulations.
 # Author : Eddie Lee, edlee@santafe.edu
 # 
 #
