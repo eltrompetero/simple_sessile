@@ -9,6 +9,7 @@ from scipy.spatial.distance import squareform
 from warnings import warn
 from misc.stats import PowerLaw
 from types import LambdaType
+from uuid import uuid4
 
 from .utils import *
 
@@ -294,7 +295,7 @@ class Forest2D():
                return_trees=False,
                n_cpus=None,
                **kwargs):
-        """Sample system.
+        """Run automaton simulation of forest and save specified time samples.
         
         Parameters
         ----------
@@ -323,7 +324,6 @@ class Forest2D():
         list of list of Tree
             For each forest, i.e. outermost list length is given by n_forests.
         """
-        
         if n_forests==1:
             t = np.zeros(n_sample)
             nk = np.zeros((n_sample, self.kmax+1))
@@ -376,7 +376,6 @@ class Forest2D():
     def snapshot(self):
         """Return copy of self.trees.
         """
-
         return [tree.copy() for tree in self.trees]
 
     def plot(self,
@@ -410,7 +409,6 @@ class Forest2D():
         matplotlib.Figure (optional)
             Only returned if ax was not given.
         """
-        
         if all_trees is None:
             all_trees = self.trees
         if ax is None:
@@ -497,7 +495,7 @@ class Tree():
         t0 : float, 0
             Birth time.
         """
-
+        self.id = uuid4()
         self.xy = xy
         self.t0 = t0
         self.t = None

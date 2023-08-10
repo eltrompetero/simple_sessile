@@ -1,29 +1,6 @@
 # ====================================================================================== #
 # Pipeline tools for generating publication results.
 # Author : Eddie Lee, edlee@santafe.edu
-# 
-#
-# MIT License
-# 
-# Copyright (c) 2021 Edward D. Lee
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-#     The above copyright notice and this permission notice shall be included in all
-#     copies or substantial portions of the Software.
-# 
-#     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-#     IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-#     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-#     AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-#     LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-#     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-#     SOFTWARE.
 # ====================================================================================== #
 import pandas as pd
 from workspace.utils import save_pickle
@@ -471,4 +448,23 @@ def hex_packing():
     r = r[0]  # x-axis, radial distance
 
     save_pickle(['p','r'], 'plotting/spatial_correlation.p')
+
+def example_sim():
+    """Example simulation of a forest.
+    """
+    L = 200                     # system length
+    g0 = 1000                   # entry rate
+    rRange = np.arange(1, 401)  # stem radius range
+    coeffs = {'canopy r': 1,
+              'canopy h': 5,
+              'grow': .3,
+              'death': .5,
+              'light competition': 400,
+              'ldecay length': 10,
+              'area competition': 0.0}
+    nu = 2  # resource fluctuation exponent
+    forest = Forest2D(L, g0, rRange, coeffs, nu)
+    nk, t, rk, trees = forest.sample(18, .1, 10, return_trees=True)
+    trees = dict([(i*10,t) for i, t in enumerate(trees)])
+    save_pickle(['nk','t','rk','trees','forest'], 'cache/plot_example.p', True)
 
