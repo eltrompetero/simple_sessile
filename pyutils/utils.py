@@ -1,29 +1,6 @@
 # ====================================================================================== #
 # Useful functions for sessile package.
 # Author : Eddie Lee, edlee@santafe.edu
-# 
-#
-# MIT License
-# 
-# Copyright (c) 2021 Edward D. Lee
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-#     The above copyright notice and this permission notice shall be included in all
-#     copies or substantial portions of the Software.
-# 
-#     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-#     IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-#     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-#     AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-#     LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-#     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-#     SOFTWARE.
 # ====================================================================================== #
 import numpy as np
 import pandas as pd
@@ -98,3 +75,29 @@ def select_points_in_box(xy, dim):
     selectix = (xy[:,0]>=x0) & (xy[:,0]<=x1) & (xy[:,1]>=y0) & (xy[:,1]<=y1)
 
     return xy[selectix]
+
+def log_hist(Y, bins=20, normalize=True):
+    """
+    Parameters
+    ----------
+    Y : ndarray
+    bins : int or ndarray
+    normalize : bool, True
+        If True, normalize each bin by the number of integers in the bin.
+
+    Returns
+    -------
+    ndarray
+    ndarray
+    """
+    if not hasattr(bins, '__len__'):
+        bins = np.logspace(np.log10(Y.min()), np.log10(Y.max()), bins)
+        bins[-1] += 1e-10
+    
+    n = np.bincount(np.digitize(Y, bins)-1).astype(np.float64)
+    if normalize:
+        n /= np.diff(bins)*n.sum()
+    xmid = np.exp((np.log(bins[1:])+np.log(bins[:-1]))/2)
+
+    return n, bins, xmid
+
