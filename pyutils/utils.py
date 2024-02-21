@@ -82,8 +82,9 @@ def log_hist(Y, bins=20, normalize=True):
     ----------
     Y : ndarray
     bins : int or ndarray
-    normalize : bool, True
-        If True, normalize each bin by the number of integers in the bin.
+    normalize : bool or str, True
+        If True, normalize each bin by the bin width. If 'int', then normalize by the number
+        of integers within the bins.
 
     Returns
     -------
@@ -92,11 +93,18 @@ def log_hist(Y, bins=20, normalize=True):
     """
     if not hasattr(bins, '__len__'):
         bins = np.logspace(np.log10(Y.min()), np.log10(Y.max()), bins)
+        # account for numerical precision errors that put values outside the defined range
         bins[-1] += 1e-10
+        bins[0] -= 1e-10
     
     n = np.bincount(np.digitize(Y, bins)-1).astype(np.float64)
-    if normalize:
+    if normalize==True:
         n /= np.diff(bins)*n.sum()
+    elif normalize=='int':
+        n /= np.floor(np.diff(bins))*n.sum()
+    else:
+        raise NotImplementedError
+
     xmid = np.exp((np.log(bins[1:])+np.log(bins[:-1]))/2)
 
     return n, bins, xmid
