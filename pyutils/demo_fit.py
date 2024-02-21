@@ -43,7 +43,7 @@ class MeanFieldFitter():
         if (kappa + 1. - b)<= 0: return -np.inf
         
         return ((np.log(self.X) - np.log(self.r0)) * -alpha - 
-                F / (kappa + 1. - b) * self.X**(kappa + 1. - b) -
+                (F*self.X)**(kappa + 1. - b) / (kappa + 1. - b) -
                 np.log(self.Z(alpha, kappa, b, F, self.r0))).sum()
         
     def fit(self, alpha=None,
@@ -150,7 +150,7 @@ class MeanFieldFitter():
         tot_exp = kappa + 1. - b
         try:
             Z = r0  / tot_exp * expint(1 + (alpha - 1.) / tot_exp,
-                                       F / tot_exp * r0**tot_exp)
+                                       (F*r0)**tot_exp / tot_exp)
             Z = float(Z)
         except TypeError:
             Z = float(Z.real)
@@ -169,7 +169,7 @@ class MeanFieldFitter():
         
         Z = cls.Z(alpha, kappa, b, F, r0)
         
-        return (r / r0)**-alpha * np.exp(-F / tot_exp * r**tot_exp) / Z
+        return (r / r0)**-alpha * np.exp(-(F*r)**tot_exp / tot_exp) / Z
 
     def standard_fit(self):
         """Implement fit with standard lognormal posteriors for model parameters
@@ -196,7 +196,7 @@ class MeanFieldFitter():
         s = np.sqrt((np.exp(ls**2)-1) * np.exp(2*lm+ls**2))  # linear std
         kappa_prior = lambda alpha, ls=ls, lm=lm: np.log(lognorm.pdf(alpha, s=ls, scale=np.exp(lm)))
 
-        m = 1e-4  # linear mean
+        m = 1e-2  # linear mean
         ls = 1  # log std
         lm = np.log(m) - ls**2/2  # log mean
         s = np.sqrt((np.exp(ls**2)-1) * np.exp(2*lm+ls**2))  # linear std
@@ -334,13 +334,13 @@ class MeanFieldModel():
             assert X.ndim==1 and (X>=self.r0).all()
             logp = np.zeros(X.size)
             logp = ((np.log(X) - np.log(self.r0)) * -self.alpha - 
-                    self.F / (self.kappa + 1. - self.b) * X**(self.kappa + 1. - self.b) -
+                    (self.F*X)**(self.kappa + 1. - self.b) / (self.kappa + 1. - self.b) -
                     np.log(self.Z()))
             return logp
     
         assert X>=self.r0
         return ((np.log(X) - np.log(self.r0)) * -self.alpha - 
-                self.F / (self.kappa + 1. - self.b) * X**(self.kappa + 1. - self.b) -
+                (self.F*X)**(self.kappa + 1. - self.b) / (self.kappa + 1. - self.b) -
                 np.log(self.Z())).sum()
 
     def Z(self):
@@ -349,7 +349,7 @@ class MeanFieldModel():
         tot_exp = self.kappa + 1. - self.b
         try:
             Z = self.r0  / tot_exp * expint(1 + (self.alpha - 1.) / tot_exp,
-                                       self.F / tot_exp * self.r0**tot_exp)
+                                       (self.F*self.r0)**tot_exp / tot_exp)
             Z = float(Z)
         except TypeError:
             Z = float(Z.real)
