@@ -131,6 +131,47 @@ class MeanFieldFitter():
         if full_output:
             return (kappa, F), soln
         return kappa, F
+    
+    def fit_fixkappa(self, alpha=None,
+                     initial_guess=[2, .1],
+                     kappa=1.,
+                     full_output=False,
+                     log_prior=None):
+        """Fit via max likelihood with b=1/3.
+        
+        TODO: fix off-by-one errors in defining alpha. Inconsistent between functions because of 
+        temporary changes made at one point."""
+        b = 1/3
+        assert len(initial_guess)==2
+        initial_guess = np.log([initial_guess[0]-1, initial_guess[1]])
+        bounds = None
+        
+        if alpha is None:
+            if log_prior is None:
+                soln = minimize(lambda args: -self.log_likelihood([args[0],np.log(kappa),np.log(b),args[1]]),
+                                initial_guess,
+                                bounds=bounds,
+                                method='powell',
+                                tol=1e-7)
+            else:
+                soln = minimize(lambda args: -self.log_likelihood([args[0],np.log(kappa),np.log(b),args[1]]) - 
+                                log_prior[0](np.exp(args[0])) - 
+                                log_prior[1](np.exp(args[1])),
+                                initial_guess,
+                                bounds=bounds,
+                                method='powell',
+                                tol=1e-7)
+            alpha, F = np.exp(soln['x'])
+            if full_output:
+                return (alpha, F), soln
+            return alpha, F
+
+        fitfun = lambda args: -self.log_likelihood([np.log(alpha-1),np.log(kappa),np.log(b),args[1]])
+        soln = minimize(fitfun, initial_guess)
+        F = np.exp(soln['x'])[-1]
+        if full_output:
+            return F, soln
+        return F
         
     @classmethod
     def Z(cls, alpha, kappa, b, F, r0):
@@ -205,6 +246,35 @@ class MeanFieldFitter():
         log_priors = [alpha_prior, kappa_prior, F_prior]
 
         return self.fit_fixb(initial_guess=[2., 1., .01], log_prior=log_priors)
+    
+    def standard_fit_kappa(self, kappa):
+        """Implement fit with standard lognormal posteriors for model parameters
+        and fixed b=1/3.
+
+        Returns
+        -------
+        float
+            Best fit demographic exponent alpha.
+        float
+            Best fit fluctuations exponent kappa.
+        float
+            Best fit resource competition exponent F.
+        """
+        m = 2  # linear mean
+        ls = 1  # log std
+        lm = np.log(m) - ls**2/2  # log mean
+        s = np.sqrt((np.exp(ls**2)-1) * np.exp(2*lm+ls**2))  # linear std
+        alpha_prior = lambda alpha, ls=ls, lm=lm: np.log(lognorm.pdf(alpha, s=ls, scale=np.exp(lm)))
+
+        m = 1e-3  # linear mean
+        ls = .5  # log std
+        lm = np.log(m) - ls**2/2  # log mean
+        s = np.sqrt((np.exp(ls**2)-1) * np.exp(2*lm+ls**2))  # linear std
+        F_prior = lambda alpha, ls=ls, lm=lm: np.log(lognorm.pdf(alpha, s=ls, scale=np.exp(lm)))
+
+        log_priors = [alpha_prior, F_prior]
+
+        return self.fit_fixkappa(initial_guess=[2., .01], kappa=kappa, log_prior=log_priors)
 #end MeanFieldFitter
 
 

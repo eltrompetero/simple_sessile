@@ -82,3 +82,39 @@ def namibia_corr_fcn():
     p, r = nn.pair_correlation(xy, np.linspace(0, 10, 50), (100, 100, 400, 400))
 
     return p, r
+
+
+
+class BCI():
+    def __init__(self, parquet_file='../data/BCI/bci.tree.parquet'):
+        """
+        Parameters
+        ----------
+        parquet_file : str, '../data/BCI/bci.tree.parquet'
+        """
+        self.parquet_file = parquet_file
+        self.conn = self.dbconn()
+
+    def dbconn(self):
+        """Duckdb connection to parquet file with bci demographic data."""
+        conn = db.connect(':memory:', read_only=False)
+        conn.execute(f'''CREATE TABLE bci AS SELECT * FROM parquet_scan('{self.parquet_file}');''')
+        return conn
+
+    def execute(self, q, fetchdf=True):
+        """Execute query on parquet file.
+        
+        Parameters
+        ----------
+        q : str
+        fetchdf : bool, True
+
+        Returns
+        -------
+        pd.DataFrame or None
+        """
+        if fetchdf:
+            return self.conn.execute(q).fetchdf()
+        return self.conn.execute(q)
+#end BCI
+
