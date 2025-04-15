@@ -44,7 +44,7 @@ def collect_sample(model,
         
         key, subkey = random.split(key)
         sampler.run(subkey, X)
-        sample.append(sampler.get_samples().copy())
+        sample.append(sampler.get_samples(True).copy())
         if iprint: print(f"Done with iteration {i+1}/{n_loop} in {time.time()-t0:.2f} seconds.")
     return sample
 
@@ -64,7 +64,7 @@ def describe_params(params):
     for k in params.keys():
         print(f'<{k}> = {params[k].mean()} +/- {params[k].std()}')
 
-def cdf_bounds(xplot, params, percentile=(5,95)):
+def cdf_bounds_lkw(xplot, params, percentile=(5,95)):
     """Return CDF with confidence bounds given the parameter samples along
     the given x-coordinates. This is a helper function for plotting.
     
@@ -85,11 +85,51 @@ def cdf_bounds(xplot, params, percentile=(5,95)):
 
     def inner(j, val):
         x, params, cdf_ = val
-        mft = MeanFieldLKW(params['alpha'][j],
-                           params['kappa'][j],
-                           params['b'][j],
-                           params['rstar'][j],
+        mft = MeanFieldLKW(params['alpha'].ravel()[j],
+                           params['kappa'].ravel()[j],
+                           params['b'].ravel()[j],
+                           params['rstar'].ravel()[j],
                            r0=jnp.array(20.))
+        return [x, params, cdf_.at[j].set(mft.cdf(jnp.array([x]))[0])]
+
+    def outer(i, val):
+        xplot, cdf, cdf_min, cdf_max = val
+        x = xplot[i]
+
+        cdf_ = lax.fori_loop(0, n_sample, inner, [x, params, jnp.zeros(n_sample)])[-1]
+
+        cdf = cdf.at[i].set(jnp.median(cdf_))
+        cdf_min = cdf_min.at[i].set(jnp.percentile(cdf_, percentile[0]))
+        cdf_max = cdf_max.at[i].set(jnp.percentile(cdf_, percentile[1]))
+
+        return [xplot, cdf, cdf_min, cdf_max]
+    
+    cdf, cdf_min, cdf_max = lax.fori_loop(0, xplot.size, outer, [xplot, cdf, cdf_min, cdf_max])[1:]
+    return cdf, cdf_min, cdf_max
+
+def cdf_bounds_det(xplot, params, percentile=(5,95)):
+    """Return CDF with confidence bounds given the parameter samples along
+    the given x-coordinates. This is a helper function for plotting.
+    
+    Parameters
+    ----------
+    xplot : jnp.array
+    params : dict
+        Key 'mu' that gives a list-like object.
+
+    Returns
+    -------
+    np.ndarray
+    """
+    n_sample = params[list(params.keys())[0]].size
+    cdf = jnp.zeros(xplot.size)
+    cdf_min = jnp.zeros(xplot.size)
+    cdf_max = jnp.zeros(xplot.size)
+
+    def inner(j, val):
+        x, params, cdf_ = val
+        mft = DET(params['mu'].ravel()[j],
+                  r0=jnp.array(20.))
         return [x, params, cdf_.at[j].set(mft.cdf(jnp.array([x]))[0])]
 
     def outer(i, val):
@@ -249,19 +289,18 @@ class MeanFieldLKW(pyro.distributions.Distribution):
             sol = minimize(cost, jnp.array([0.]), method='BFGS')
             Y = Y.at[i].set(jnp.exp(jnp.squeeze(sol.x))+self.r0)
         return Y
-            
+
     @jit
     def log_likelihood(self, X):
         """Log likelihood of observations in self.X given model parameters.
 
         Parameters
         ----------
-        args : list-like
-            Logarithm of model parameters in order of alpha, kappa, b, rstar. 
+        X : jnp.ndarray
         
         Returns
         -------
-        float
+        jnp.ndarray
         """
         delta = self.kappa + 1. - self.b
         return ((jnp.log(X) - jnp.log(self.r0)) * -(self.alpha + 1) - 
@@ -350,4 +389,77 @@ class MeanFieldLKW(pyro.distributions.Distribution):
         alpha, kappa, b, rstar, r0 = children
         return cls(alpha, kappa, b, rstar, r0)
 #end MeanFieldLKW
+
+
+
+class DET(pyro.distributions.Distribution):
+    arg_constraints = {
+        "mu": constraints.positive
+    }
+    support = pyro.distributions.constraints.positive  # The distribution is defined for positive values
+
+    def __init__(self, mu, r0=jnp.array(1.)):
+        """Class for fitting demographic scaling with resource competition correction.
+        
+        Parameters
+        ----------
+        mu : float
+        r0 : float
+            Min radius.
+        """
+        self.mu = mu
+        self.r0 = r0
+        self._batch_shape = ()  # No batch dimensions
+        self._event_shape = (mu.size,)
+
+    def model(self, X):
+        assert X.min()>=self.r0
+        return self.log_likelihood(X)
+
+    def log_prob(self, X):
+        return self.log_likelihood(X)
+
+    def cdf(self, X):
+        return 1. - jnp.exp(4*self.mu * (1-(X/self.r0)**(2./3)))
+
+    def icdf(self, c):
+        return self.r0 / 8 * ((4*self.mu - jnp.log(1-c)) / self.mu)**(3/2)
+
+    def log_likelihood(self, X):
+        """Log likelihood of observations in self.X given model parameters.
+
+        Parameters
+        ----------
+        X : jnp.ndarray
+        
+        Returns
+        -------
+        jnp.ndarray
+            Same shape as X.
+        """
+        return jnp.log(8/3*self.mu/self.r0) - jnp.log(X/self.r0)/3 + 4*self.mu * (1 - (X/self.r0)**(2/3))
+
+    def pdf(self, X):
+        return jnp.exp(self.log_likelihood(X))
+
+    def sample(self, key, sample_shape=()):
+        u = random.uniform(key, shape=sample_shape)
+        return self.icdf(u)
+ 
+    def max_likelihood_mu(self, X):
+        """Max likelihood estimate of mu."""
+        return 1 / ( 4 * (-1 + jnp.mean((X/self.r0)**(2/3))) )
+
+    def __str__(self):
+        return f'mu = {self.mu}'
+
+    # PyTree methods
+    def tree_flatten(self):
+        return (self.mu, self.r0), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        mu, r0 = children
+        return cls(mu, r0)
+#end DET
 
