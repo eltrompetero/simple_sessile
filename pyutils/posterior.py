@@ -12,6 +12,10 @@ from jax.scipy.optimize import minimize
 import jax
 import time
 import numpy as np
+import scipy.special as scs
+from scipy.optimize import minimize
+import mpmath as mp
+
 jax.config.update('jax_enable_x64', True)
 jax.config.update('jax_platform_name', 'cpu')
 pyro.set_platform('cpu')
@@ -32,7 +36,26 @@ def collect_sample(model,
 
     Parameters
     ----------
-
+    model : callable
+        Model to sample from.
+    X : ndarray
+        Data to sample from.
+    n_loop : int
+        Number of iterations to run.
+    key : jax.random.PRNGKey, optional
+        Random key for sampling, by default None.
+    iprint : bool, optional
+        Whether to print progress, by default True.
+    mcmc_kwargs : dict, optional
+        Additional arguments for MCMC, by default {}.
+        - num_warmup : int
+            Number of warmup steps.
+        - num_samples : int
+            Number of samples to draw.
+        - num_chains : int
+            Number of chains to run in parallel.
+        - thinning : int
+            Thinning interval for samples.
     """
     sample = []
     key = key if not key is None else random.PRNGKey(np.random.randint(2**32-1))
@@ -153,8 +176,14 @@ def cdf_bounds_det(xplot, params, percentile=(5,95)):
 # Utility functions #
 # ================= #
 @jit
-def gamma_unnormalized(n, z):
-    return jsc.special.gammaincc(n, z) * jsc.special.gamma(n)
+def gammaincc_unnormalized(n, z):
+    return lax.cond(n==0,
+                    lambda _: -0.5772156649015328606 - jnp.log(z) + z - z**2/4 + z**3/18 - z**4/96 + z**5/600,
+                    lambda _: jsc.special.gammaincc(n, z) * jsc.special.gamma(n),
+                    n)
+
+def gammainc_unnormalized(n, z):
+    return jsc.special.gammainc(n, z) * jsc.special.gamma(n)
 
 @jit
 def _gammaincc_neg_n(n, z):
@@ -174,7 +203,7 @@ def _gammaincc_neg_n(n, z):
         n -= 1
         return [val, n]
     
-    val = gamma_unnormalized(n, z)
+    val = gammaincc_unnormalized(n, z)
     val, n = lax.while_loop(cond_f,
                             body_f,
                             [val, n])
@@ -183,21 +212,21 @@ def _gammaincc_neg_n(n, z):
 def gammaincc_neg_n(n, z):
     # save target value of n and create iteration array
     n_orig = n
-    n = (n%1) - jnp.arange(101)[:,None]
+    n = (n%1) - jnp.arange(101)
 
     # iterate thru recursive relations til target value is reached, accounting for precision error
     def body_f(val, n):
-        val = lax.cond(jnp.logical_and(~jnp.isclose(n[0], n_orig), (n[0]+.5)>n_orig),
+        val = lax.cond(jnp.logical_and(~jnp.isclose(n, n_orig), (n+.5)>n_orig),
                        lambda val: (val - z**(n-1)*jnp.exp(-z)) / (n-1),
                        lambda val: val,
                        val)
         return val, n
 
-    val = gamma_unnormalized(n[0], z)
+    val = gammaincc_unnormalized(n[0], z)
     val, n = lax.scan(body_f, val, n)
 
     # only return first element because autoconversion to sized ndarray occurs
-    return val[0]
+    return val
 
 @jit
 def gammaincc(n, z):
@@ -213,15 +242,13 @@ def gammaincc(n, z):
     float
     """
     y = lax.cond(n>=0,
-                 gamma_unnormalized,
+                 gammaincc_unnormalized,
                  gammaincc_neg_n,
                  n, z)
     return y
 
 @jit
 def expn(n, z):
-    n = jnp.squeeze(n)
-    z = jnp.squeeze(z)
     return z**(n-1) * gammaincc(1-n, z)
 
 
@@ -236,7 +263,7 @@ class MeanFieldLKW(pyro.distributions.Distribution):
         "b": constraints.unit_interval,
         "rstar": constraints.positive
     }
-    support = pyro.distributions.constraints.positive  # The distribution is defined for positive values
+    support = constraints.positive  # The distribution is defined for positive values
     # reparametrized_params = ["a", "b"]
 
     def __init__(self, alpha, kappa, b, rstar, r0=jnp.array(1.)):
@@ -396,7 +423,7 @@ class DET(pyro.distributions.Distribution):
     arg_constraints = {
         "mu": constraints.positive
     }
-    support = pyro.distributions.constraints.positive  # The distribution is defined for positive values
+    support = constraints.positive  # The distribution is defined for positive values
 
     def __init__(self, mu, r0=jnp.array(1.)):
         """Class for fitting demographic scaling with resource competition correction.
@@ -463,3 +490,91 @@ class DET(pyro.distributions.Distribution):
         return cls(mu, r0)
 #end DET
 
+class ExpTruncatedPowerLaw(pyro.distributions.Distribution):
+    arg_constraints = {
+        "alpha": constraints.interval(0., 3.),
+        "el": constraints.positive,
+    }
+    support = constraints.positive  # The distribution is defined for positive values
+
+    def __init__(self, alpha, el, x0=jnp.array(1.)):
+        """Exponentially truncated power law distribution."""
+        self.alpha = alpha
+        self.el = el
+        self.x0 = x0
+        self._batch_shape = ()  # No batch dimensions
+        self._event_shape = (alpha.size,)
+
+    def model(self, X):
+        assert X.min()>=self.x0
+        return self.log_likelihood(X)
+
+    def log_prob(self, x):
+        return (-(self.alpha+1) * jnp.log(x) - self.el*x - self.alpha*jnp.log(self.el) -
+                jnp.log(gammaincc(-self.alpha, self.x0*self.el)))
+
+    def cdf(self, x):
+        return 1 - gammaincc(-self.alpha, x*self.el) / gammaincc(-self.alpha, self.x0*self.el)
+
+    def pdf(self, X):
+        return jnp.exp(self.log_prob(X))
+
+    def sample(self, key, sample_shape=()):
+        """Rejection sampling approach, using power law as proposal distribution."""
+        n_sample = 1
+        for d in sample_shape:
+            n_sample *= d
+        alpha = self.alpha
+        x0 = self.x0
+        X = jnp.zeros(n_sample)
+        x0_scale = self.pdf(x0)
+    
+        def cond_f(val):
+            key, counter, X = val
+            return counter < n_sample
+    
+        def update(val):
+            counter, r, X = val
+            X = X.at[counter].set(r)
+            counter += 1
+            return [counter, r, X]
+        
+        def body_f(val):
+            key, counter, X = val
+            # sample from proposal distribution (a power law)
+            key, subkey = random.split(key)
+            r = self.sample_pl(subkey, alpha, x0)
+            
+            # rejection step
+            key, subkey = random.split(key)
+            # rescale height of proposal distribution
+            u = random.uniform(subkey) * r**(-alpha-1) / x0**-alpha * x0 * x0_scale
+            counter, r, X = lax.cond(u <= self.pdf(r),
+                                     update,
+                                     lambda val: val,
+                                     [counter, r, X])
+            return [key, counter, X]
+    
+        key, counter, X = lax.while_loop(cond_f,
+                                         body_f,
+                                         [key, 0, X])
+            
+        return X.reshape(sample_shape)
+
+    @classmethod
+    def sample_pl(cls, key, alpha, xmin, shape=()):
+        u = random.uniform(key, shape=shape)
+        return xmin * (1 - u) ** (-1 / alpha)
+    
+    def __str__(self):
+        return f'alpha = {self.alpha}\nel = {self.el}'
+
+    # PyTree methods
+    def tree_flatten(self):
+        return (self.alpha, self.el, self.x0), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        alpha, el, x0 = children
+        return cls(alpha, el, x0)
+#end ExpTruncatedPowerLaw
