@@ -256,8 +256,6 @@ class MeanFieldFitter():
         float
             Best fit demographic exponent alpha.
         float
-            Best fit fluctuations exponent kappa.
-        float
             Best fit resource competition exponent F.
         """
         m = 2  # linear mean
