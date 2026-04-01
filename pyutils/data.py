@@ -86,19 +86,19 @@ def namibia_corr_fcn():
 
 
 class BCI():
-    def __init__(self, parquet_file='../data/BCI/bci.tree.parquet'):
+    def __init__(self, csv_file='../data/BCI/bci.tree.parquet'):
         """
         Parameters
         ----------
-        parquet_file : str, '../data/BCI/bci.tree.parquet'
+        csv_file : str, '../data/BCI/bci.tree.parquet'
         """
-        self.parquet_file = parquet_file
+        self.csv_file = csv_file
         self.conn = self.dbconn()
 
     def dbconn(self):
         """Duckdb connection to parquet file with bci demographic data."""
         conn = db.connect(':memory:', read_only=False)
-        conn.execute(f'''CREATE TABLE bci AS SELECT * FROM parquet_scan('{self.parquet_file}');''')
+        conn.execute(f'''CREATE TABLE bci AS SELECT * FROM parquet_scan('{self.csv_file}');''')
         return conn
 
     def execute(self, q, fetchdf=True):
@@ -117,4 +117,51 @@ class BCI():
             return self.conn.execute(q).fetchdf()
         return self.conn.execute(q)
 #end BCI
+
+
+
+class SCBI():
+    def __init__(self,
+                 csv_file='../data/ForestGeoDatasets/5_NAmerica_1_SCBI/SCBI_initial_woody_stem_census_2012.csv'):
+        """
+        Parameters
+        ----------
+        csv_file : str, '../data/ForestGeoDatasets/5_NAmerica_1_SCBI/SCBI_initial_woody_stem_census_2012.csv'):
+        """
+        self.csv_file = csv_file
+        self.conn = self.dbconn()
+
+    def dbconn(self):
+        """Duckdb connection to csv file with demographic data."""
+        conn = db.connect(':memory:', read_only=False)
+        conn.execute(f'''CREATE TABLE scbi AS SELECT * FROM read_csv('{self.csv_file}');''')
+        conn.execute('ALTER TABLE scbi RENAME COLUMN DBH TO dbh;')
+        return conn
+
+    def execute(self, q, fetchdf=True):
+        """Execute query on parquet file.
+        
+        Parameters
+        ----------
+        q : str
+        fetchdf : bool, True
+
+        Returns
+        -------
+        pd.DataFrame or None
+        """
+        if fetchdf:
+            return self.conn.execute(q).fetchdf()
+        return self.conn.execute(q)
+
+    def dbh(self):
+        q = f'''
+            SELECT dbh
+            FROM scbi
+            WHERE Stem='main'
+                AND Status='alive'
+                AND dbh IS NOT NULL
+            '''
+        return self.execute(q)
+#end SCBI
 
