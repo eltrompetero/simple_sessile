@@ -125,6 +125,7 @@ class BCI_Rainfall:
             )
             AND datetime = '2017-08-04 05:55:00';
 
+            -- create five-minute binned rainfall data, filling in missing intervals with 0 rainfall
             CREATE TABLE rainfall5 AS
             WITH rainfall_summarized AS (
                 SELECT interval_end, SUM(ra_sum) AS ra_sum
@@ -210,7 +211,7 @@ class BCI_Rainfall:
         Parameters
         ----------
         year : int, two ints, or twople
-            Year range [year[0], year[1]).
+            Year range [year[0], year[1]). Inclusive of first year, exclusive of second year.
         threshold_fcn : function, np.mean
 
         Returns

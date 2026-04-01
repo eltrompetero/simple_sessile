@@ -15,6 +15,7 @@ import numpy as np
 import scipy.special as scs
 from scipy.optimize import minimize
 import mpmath as mp
+from functools import cache
 
 jax.config.update('jax_enable_x64', True)
 jax.config.update('jax_platform_name', 'cpu')
@@ -58,6 +59,7 @@ def collect_sample(model,
             Thinning interval for samples.
     """
     sample = []
+    potential_energy = []
     key = key if not key is None else random.PRNGKey(np.random.randint(2**32-1))
 
     for i in range(n_loop):
@@ -66,10 +68,11 @@ def collect_sample(model,
         sampler = MCMC(nuts_kernel, **mcmc_kwargs)
         
         key, subkey = random.split(key)
-        sampler.run(subkey, X)
+        sampler.run(subkey, X, extra_fields=('potential_energy',))
         sample.append(sampler.get_samples(True).copy())
+        potential_energy.append(sampler.get_extra_fields()['potential_energy'])
         if iprint: print(f"Done with iteration {i+1}/{n_loop} in {time.time()-t0:.2f} seconds.")
-    return sample
+    return sample, potential_energy
 
 def consolidate_sample(sample):
     """Organize list of samples from collect_sample().
@@ -170,6 +173,46 @@ def cdf_bounds_det(xplot, params, percentile=(5,95)):
     cdf, cdf_min, cdf_max = lax.fori_loop(0, xplot.size, outer, [xplot, cdf, cdf_min, cdf_max])[1:]
     return cdf, cdf_min, cdf_max
 
+def cdf_bounds_det2(xplot, params, percentile=(5,95)):
+    """Return CDF with confidence bounds given the parameter samples along
+    the given x-coordinates. This is a helper function for plotting.
+    
+    Parameters
+    ----------
+    xplot : jnp.array
+    params : dict
+        Key 'mu' that gives a list-like object.
+
+    Returns
+    -------
+    np.ndarray
+    """
+    n_sample = params[list(params.keys())[0]].size
+    cdf = jnp.zeros(xplot.size)
+    cdf_min = jnp.zeros(xplot.size)
+    cdf_max = jnp.zeros(xplot.size)
+
+    def inner(j, val):
+        x, params, cdf_ = val
+        mft = DET2(params['mu'].ravel()[j],
+                   params['phi'].ravel()[j],
+                   r0=jnp.array(20.))
+        return [x, params, cdf_.at[j].set(mft.cdf(jnp.array([x]))[0])]
+
+    def outer(i, val):
+        xplot, cdf, cdf_min, cdf_max = val
+        x = xplot[i]
+
+        cdf_ = lax.fori_loop(0, n_sample, inner, [x, params, jnp.zeros(n_sample)])[-1]
+
+        cdf = cdf.at[i].set(jnp.median(cdf_))
+        cdf_min = cdf_min.at[i].set(jnp.percentile(cdf_, percentile[0]))
+        cdf_max = cdf_max.at[i].set(jnp.percentile(cdf_, percentile[1]))
+
+        return [xplot, cdf, cdf_min, cdf_max]
+    
+    cdf, cdf_min, cdf_max = lax.fori_loop(0, xplot.size, outer, [xplot, cdf, cdf_min, cdf_max])[1:]
+    return cdf, cdf_min, cdf_max
 
 
 # ================= #
@@ -489,6 +532,84 @@ class DET(pyro.distributions.Distribution):
         mu, r0 = children
         return cls(mu, r0)
 #end DET
+
+
+class DET2(pyro.distributions.Distribution):
+    arg_constraints = {
+        "mu": constraints.positive,
+        "phi": constraints.interval(0, 1),
+    }
+    support = constraints.positive  # The distribution is defined for positive values
+
+    def __init__(self, mu, phi, r0=jnp.array(1.)):
+        """Class for fitting demographic scaling with resource competition correction.
+        
+        Parameters
+        ----------
+        mu : float
+        phi : float
+        r0 : float
+            Min radius.
+        """
+        self.mu = mu
+        self.phi = phi
+        self.r0 = r0
+        self._batch_shape = ()  # No batch dimensions
+        self._event_shape = (mu.size,)
+
+    def model(self, X):
+        assert X.min()>=self.r0
+        return self.log_likelihood(X)
+
+    def log_prob(self, X):
+        return self.log_likelihood(X)
+
+    def cdf(self, X):
+        mu = self.mu
+        phi = self.phi
+        return 1. - jnp.exp(mu/(1-phi) * (self.r0**(1-phi) - X**(1-phi)))
+
+    def icdf(self, c):
+        mu = self.mu
+        phi = self.phi
+        return (mu/(self.r0**(1 - phi) * mu - jnp.log(1 - c) + phi * jnp.log(1 - c)))**(1/(- 1 + phi))
+
+    def log_likelihood(self, X):
+        """Log likelihood of observations in self.X given model parameters.
+
+        Parameters
+        ----------
+        X : jnp.ndarray
+        
+        Returns
+        -------
+        jnp.ndarray
+            Same shape as X.
+        """
+        mu = self.mu
+        phi = self.phi
+        return jnp.log(mu) - phi*jnp.log(X) + mu/(1-phi)*(self.r0**(1-phi) - X**(1-phi))
+
+    def pdf(self, X):
+        return jnp.exp(self.log_likelihood(X))
+
+    def sample(self, key, sample_shape=()):
+        u = random.uniform(key, shape=sample_shape)
+        return self.icdf(u)
+ 
+    def __str__(self):
+        return f'mu = {self.mu}\nphi = {self.phi}'
+
+    # PyTree methods
+    def tree_flatten(self):
+        return (self.mu, self.phi, self.r0), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        mu, phi, r0 = children
+        return cls(mu, phi, r0)
+#end DET2
+
 
 class ExpTruncatedPowerLaw(pyro.distributions.Distribution):
     arg_constraints = {
