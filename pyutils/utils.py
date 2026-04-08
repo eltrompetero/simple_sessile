@@ -2,9 +2,9 @@
 # Useful functions for sessile package.
 # Author : Eddie Lee, edlee@santafe.edu
 # ====================================================================================== #
+import os
 import numpy as np
 import pandas as pd
-import os
 from netCDF4 import Dataset
 from scipy.spatial.distance import pdist, squareform
 from numpy import ma
@@ -12,10 +12,10 @@ from threadpoolctl import threadpool_limits
 from multiprocess import Pool, cpu_count
 from statsmodels.distributions import ECDF
 import duckdb as db
-from jax import jit
+from numba import jit, njit
 
 
-@jit
+@njit
 def row_ix_from_utri(i, n):
     """Indices that correspond to row indices of non-diagonal elements 
     of an unraveled, symmetric matrix using squareform.

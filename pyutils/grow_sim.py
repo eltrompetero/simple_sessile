@@ -48,7 +48,7 @@ class Forest2D():
         self.t = 0  # time counter of total age of forest
         
         self.rRange = r_range
-        self.coeffs = coeffs
+        self.coeffs = coeffs.copy()
         self.kmax = r_range.size - 1
         
         self.trees = []  # list of all trees in system
@@ -115,24 +115,27 @@ class Forest2D():
 
         Returns
         -------
-        list
-            False values indicate checks were passsed for growth rate and mortality,
-            respectively.
+        tuple
+            (Boolean to indicate check was failed for growth rate,
+             value of growth rate that failed)
+            i.e., false values indicate checks were passed.
+        tuple 
+            (Boolean to indicate check was failed for mortality rate,
+             value of mortality rate that failed) 
         """
-        
         checks = []
         
         # growth
         if not ((self.growRate * dt)<=self.tol).all():
-            checks.append( (self.growRate*dt).max() )
+            checks.append( (True, (self.growRate*dt).max()) )
         else:
-            checks.append(False)
+            checks.append((False, 0.))
        
         # mortality
         if not ((self.deathRate * dt)<=self.tol).all():
-            checks.append( (self.deathRate*dt).max() )
+            checks.append( (True, (self.deathRate*dt).max()) )
         else:
-            checks.append(False)
+            checks.append((False, 0.))
 
         return checks
 
@@ -147,8 +150,6 @@ class Forest2D():
         
         # all trees grow in size
         r = self.rng.rand(len(self.trees))
-        # except for the largest ones that leave the system
-        removeix = []
 
         for i, tree in enumerate(self.trees):
             # probability that tree of given size class should grow
@@ -162,11 +163,6 @@ class Forest2D():
                     tree.grow()
                 else:
                     warn("Largest tree has reached max bin. Recommend increasing size range.")
-
-        counter = 0
-        for ix in removeix:
-            self.deadTrees.append(self.trees.pop(ix-counter))
-            counter += 1
 
         # introduce saplings
         for i in range(self.rng.poisson(self.g0 * dt)):
@@ -264,15 +260,16 @@ class Forest2D():
                 warn("Competition rate could exceed rate tolerance limit. Recommend shrinking dt.")
 
         # randomly kill trees with rate proportional to overlap and height diff
-        killedCounter = 0
-        for i, trees in enumerate(self.trees):
+        killedTreeIx = []
+        for i in range(len(self.trees)):
             dh = np.delete(h - h[i], i)  # height difference, neighbor - self, excepting self
             competeFactor = overlapArea[row_ix_from_utri(i, r.size)] * self.ldecay_f(dh)
-
             if self.rng.rand() < competeFactor.sum():
-                # remove identified trees from the ith tree size class
-                self.deadTrees.append( self.trees.pop(i-killedCounter).kill(self.t) )
-                killedCounter += 1
+                killedTreeIx.append(i)
+
+        for i, ix in enumerate(killedTreeIx):
+            # remove identified trees from the ith tree size class
+            self.deadTrees.append( self.trees.pop(ix-i).kill(self.t) )
  
     def nk(self):
         """Population count per size class.
