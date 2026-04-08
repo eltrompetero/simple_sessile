@@ -89,7 +89,11 @@ def log_hist(Y, bins=20, normalize=True):
     Returns
     -------
     ndarray
+        Histogram values.
     ndarray
+        Bin edges.
+    ndarray
+        Bin midpoints.
     """
     if not hasattr(bins, '__len__'):
         bins = np.logspace(np.log10(Y.min()), np.log10(Y.max()), bins)

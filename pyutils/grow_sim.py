@@ -66,19 +66,18 @@ class Forest2D():
     def setup_bin_params(self):
         """Define parameters for each bin such as death and growth rates.
         """
-        
         coeffs = self.coeffs
         rRange = self.rRange
         self.dx = rRange[1] - rRange[0]  # assuming linearly spaced bins
         
         # root areas
-        self.rootR = np.sqrt(coeffs.get('root', 0) / np.pi) * rRange**(2/3)
+        self.rootR = np.sqrt(coeffs.get('root', 1.) / np.pi) * rRange**(2/3)
 
         # canopy area
-        self.canopyR = np.sqrt(coeffs.get('canopy r', 0) / np.pi) * rRange
+        self.canopyR = np.sqrt(coeffs.get('canopy r', 1.) / np.pi) * rRange
 
         # canopy height
-        self.canopyH = coeffs.get('canopy h', 0) * rRange**(2/3)
+        self.canopyH = coeffs.get('canopy h', 1.) * rRange**(2/3)
         
         # growth
         self.growRate = coeffs['grow'] * rRange**(1/3) / self.dx
@@ -87,7 +86,7 @@ class Forest2D():
         self.deathRate = coeffs['death'] * rRange**(-2/3)
 
         # basal metabolic rate
-        self.basalMetRate = coeffs.get('basal', 0) * rRange**1.8
+        self.basalMetRate = coeffs.get('basal', 1.) * rRange**1.8
 
         # light attenuation function (typically exponential or Theta function)
         if coeffs.get('ldecay type','theta')=='theta':
@@ -101,6 +100,11 @@ class Forest2D():
 
         if not 'area competition' in coeffs.keys():
             coeffs['area competition'] = 0.
+        else:
+            assert 'dep death rate' in coeffs.keys(), "Must specify 'dep death rate' if area competition is on."
+            assert 'area competition' in coeffs.keys(), "Must specify 'area competition' if area competition is on."
+            assert 'sharing fraction' in coeffs.keys(), "Must specify 'sharing fraction' if area competition is on."
+            assert 'resource efficiency' in coeffs.keys(), "Must specify 'resource efficiency' if area competition is on."
         if not 'light competition' in coeffs.keys():
             coeffs['light competition'] = 0.
 
@@ -179,7 +183,6 @@ class Forest2D():
             Time step.
         **kwargs
         """
-        
         r = self.rng.rand(len(self.trees))
         killedCounter = 0
 
@@ -197,7 +200,6 @@ class Forest2D():
             Time step.
         run_checks : bool, False
         """
-        
         # assemble arrays of all tree coordinates and radii
         xy = np.vstack([t.xy for t in self.trees])
         r = np.array([self.rootR[t.size_ix] for t in self.trees])
@@ -212,7 +214,7 @@ class Forest2D():
                     warn("Many trees in sim. Area competition calculation will be slow.")
             
             # randomly kill trees depending on whether or not below total basal met rate
-            killedCounter = 0
+            killedTreeIx = []
             xi = self.env_rng.rvs()  # current env status
             deathRate = self.coeffs['dep death rate'] * self.coeffs['area competition'] * dt
             area = np.pi * r**2
@@ -223,9 +225,11 @@ class Forest2D():
                 dresource = (area[i] - overlapArea[row_ix_from_utri(i, r.size)].sum() *
                              self.coeffs['sharing fraction']) * self.coeffs['resource efficiency']
                 if ((self.basalMetRate[tree.size_ix] > (dresource / xi)) and (self.rng.rand() < deathRate)):
-                        # remove identified tree from the ith tree size class
-                        self.deadTrees.append( self.trees.pop(i-killedCounter).kill(self.t) )
-                        killedCounter += 1
+                    killedTreeIx.append(i)
+
+            for i, ix in enumerate(killedTreeIx):
+                # remove identified tree from the ith tree size class
+                self.deadTrees.append( self.trees.pop(ix-i).kill(self.t) )
 
     def compete_light(self, dt=1, run_checks=False, **kwargs):
         """Play out light area competition between trees to kill trees.
@@ -407,7 +411,6 @@ class Forest2D():
         matplotlib.Figure (optional)
             Only returned if ax was not given.
         """
-        
         if all_trees is None:
             all_trees = self.trees
         if ax is None:
@@ -494,7 +497,6 @@ class Tree():
         t0 : float, 0
             Birth time.
         """
-
         self.xy = xy
         self.t0 = t0
         self.t = None
