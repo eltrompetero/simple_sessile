@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.collections import PatchCollection
 from scipy.spatial.distance import squareform
+from scipy.spatial import KDTree
 from warnings import warn
 from misc.stats import PowerLaw
 from types import LambdaType
@@ -15,7 +16,7 @@ from .utils import *
 
 
 class Forest2D():
-    def __init__(self, L, g0, r_range, coeffs, nu=2, tol=.1, rng=None):
+    def __init__(self, L, g0, r_range, coeffs, nu=2, tol=.1, bc='free', rng=None):
         """
         Parameters
         ----------
@@ -35,15 +36,19 @@ class Forest2D():
             Max value desirable for rate to probability mapping. This should be as small
             as possible to keep Poisson assumption accurate, but will slow down
             simulation when smaller.
+        bc : str, 'free'
+            Boundary conditions: 'free' for open boundaries, 'periodic' for toroidal.
         rng : np.random.RandomState, None
         """
-        
+
         assert g0>=1
         assert r_range.min()>0
         assert 0<tol<1
-        
+        assert bc in ('free', 'periodic')
+
         self.L = L
         self.g0 = g0
+        self.bc = bc
         self.tol = tol
         self.t = 0  # time counter of total age of forest
         
@@ -203,16 +208,19 @@ class Forest2D():
         # assemble arrays of all tree coordinates and radii
         xy = np.vstack([t.xy for t in self.trees])
         r = np.array([self.rootR[t.size_ix] for t in self.trees])
-        
+
         # must ensure that there are at least two trees to compare
         if xy.ndim==2:
-            # calculate area overlap for each pair of trees
-            overlapArea = jit_overlap_area(xy, r)
+            # calculate overlap area
+            _L = self.L if self.bc=='periodic' else 0.
+            overlapArea = jit_overlap_area(xy, r, _L)
+            # calculate area overlap using spatial index
+            #overlap_sum, _ = sparse_overlap_area(xy, r, _L)
 
             if run_checks:
                 if overlapArea.shape[0] > 1000:
                     warn("Many trees in sim. Area competition calculation will be slow.")
-            
+
             # randomly kill trees depending on whether or not below total basal met rate
             killedTreeIx = []
             xi = self.env_rng.rvs()  # current env status
@@ -222,6 +230,8 @@ class Forest2D():
                 # as an indpt pair approx just sum over all overlapping areas
                 # to be precise, one should consider areas where multiple trees overlap as different, but
                 # these correspond to high order interactions
+                #dresource = (area[i] - overlap_sum[i] *
+                #             self.coeffs['sharing fraction']) * self.coeffs['resource efficiency']
                 dresource = (area[i] - overlapArea[row_ix_from_utri(i, r.size)].sum() *
                              self.coeffs['sharing fraction']) * self.coeffs['resource efficiency']
                 if ((self.basalMetRate[tree.size_ix] > (dresource / xi)) and (self.rng.rand() < deathRate)):
@@ -245,15 +255,18 @@ class Forest2D():
         -------
         None
         """
-        
+
         # assemble arrays of all tree coordinates and radii
         xy = np.vstack([t.xy for t in self.trees])
         r = np.array([self.canopyR[t.size_ix] for t in self.trees])
         h = np.array([self.canopyH[t.size_ix] for t in self.trees])
-        
-        # calculate area overlap for each pair of trees
-        # this returns a vector version of symmetric square matrix
-        overlapArea = jit_overlap_area(xy, r)
+
+        # calculate area overlap
+        _L = self.L if self.bc=='periodic' else 0.
+        overlapArea = jit_overlap_area(xy, r, _L)
+        # calculate area overlap using spatial index
+        #_, neighbors = sparse_overlap_area(xy, r, _L)
+
         # turn this overlap area into a competition rate
         overlapArea *= self.coeffs['light competition'] * dt
 
@@ -358,7 +371,7 @@ class Forest2D():
 
         def loop_wrapper(args):
             # create a new forest with same parameters
-            forest = Forest2D(self.L, self.g0, self.rRange, self.coeffs, self.nu)
+            forest = Forest2D(self.L, self.g0, self.rRange, self.coeffs, self.nu, bc=self.bc)
             if return_trees:
                 return forest.sample(n_sample, dt, sample_dt, return_trees=True, **kwargs)
             return forest.sample(n_sample, dt, sample_dt, **kwargs)
@@ -428,7 +441,9 @@ class Forest2D():
                 xy = tree.xy
                 ix = tree.size_ix
                 if class_ix is None or ix in class_ix:
-                    patches.append(Circle(xy, self.canopyR[ix], ec='k'))
+                    radius = self.canopyR[ix]
+                    for gxy in _ghost_positions(xy, radius, self.L, self.bc):
+                        patches.append(Circle(gxy, radius, ec='k'))
             pcollection = PatchCollection(patches, facecolors='green', alpha=.2)
             ax.add_collection(pcollection)
 
@@ -439,7 +454,9 @@ class Forest2D():
                 xy = tree.xy
                 ix = tree.size_ix
                 if class_ix is None or ix in class_ix:
-                    patches.append(Circle(xy, self.rootR[ix]))
+                    radius = self.rootR[ix]
+                    for gxy in _ghost_positions(xy, radius, self.L, self.bc):
+                        patches.append(Circle(gxy, radius))
             pcollection = PatchCollection(patches, facecolors='brown', alpha=.15)
             ax.add_collection(pcollection)
 
@@ -519,8 +536,73 @@ class Tree():
 
 
 # ================ #
-# Useful functions 
+# Useful functions
 # ================ #
+def _ghost_positions(xy, radius, L, bc):
+    """Return list of positions at which to draw a circle for plotting.
+
+    For free BC, returns [xy]. For periodic BC, adds ghost copies shifted by
+    +/-L for circles that overlap a domain edge.
+
+    Parameters
+    ----------
+    xy : ndarray, (2,)
+    radius : float
+    L : float
+    bc : str
+
+    Returns
+    -------
+    list of ndarray
+    """
+
+    positions = [xy]
+    if bc != 'periodic':
+        return positions
+
+    shifts = []
+    if xy[0] < radius:
+        shifts.append(np.array([L, 0.]))
+    elif xy[0] > L - radius:
+        shifts.append(np.array([-L, 0.]))
+    if xy[1] < radius:
+        shifts.append(np.array([0., L]))
+    elif xy[1] > L - radius:
+        shifts.append(np.array([0., -L]))
+
+    for s in list(shifts):
+        positions.append(xy + s)
+
+    # corner ghosts: if near both an x and y edge, need diagonal shift too
+    if len(shifts) == 2:
+        positions.append(xy + shifts[0] + shifts[1])
+
+    return positions
+
+@njit
+def pair_dist(xy_i, xy_j, L=0.):
+    """Euclidean or toroidal pairwise distance.
+
+    Parameters
+    ----------
+    xy_i : ndarray
+    xy_j : ndarray
+    L : float, 0.
+        Domain side length. If >0, use minimum-image convention (periodic).
+        If 0, use standard Euclidean distance.
+
+    Returns
+    -------
+    float
+    """
+
+    dx = abs(xy_i[0] - xy_j[0])
+    dy = abs(xy_i[1] - xy_j[1])
+    if L > 0.:
+        dx = min(dx, L - dx)
+        dy = min(dy, L - dy)
+    return np.sqrt(dx**2 + dy**2)
+
 @njit
 def _area_integral(xbds, r):
     """Integral for area of circle centered at origin.
@@ -572,8 +654,55 @@ def overlap_area(d, r1, r2):
     
     return area
 
+def sparse_overlap_area(xy, r, L=0.):
+    """Calculate overlap areas using a spatial index to avoid O(n^2) pair enumeration.
+
+    Uses KDTree to find candidate pairs within interaction range, then computes
+    geometric overlap only for those pairs.
+
+    Parameters
+    ----------
+    xy : ndarray, (n, 2)
+        Centers of circles.
+    r : ndarray, (n,)
+        Radii of circles.
+    L : float, 0.
+        Domain side length. If >0, use toroidal (periodic) distance via
+        KDTree(boxsize=L).
+
+    Returns
+    -------
+    overlap_sum : ndarray, (n,)
+        Total overlap area for each circle summed over all neighbors.
+    neighbors : dict of {int: list of (int, float)}
+        For each circle i, list of (j, overlap_area) pairs with nonzero overlap.
+    """
+
+    n = len(r)
+    r_max = r.max()
+    # KDTree supports periodic boundaries natively via boxsize
+    kd = KDTree(xy, boxsize=L) if L > 0. else KDTree(xy)
+
+    # conservative cutoff: two circles can only overlap if dist < r_i + r_j <= 2*r_max
+    candidate_pairs = kd.query_pairs(2 * r_max)
+
+    overlap_sum = np.zeros(n)
+    neighbors = {i: [] for i in range(n)}
+
+    for i, j in candidate_pairs:
+        d = pair_dist(xy[i], xy[j], L)
+        a = overlap_area(d, r[i], r[j])
+        if a > 0:
+            overlap_sum[i] += a
+            overlap_sum[j] += a
+            neighbors[i].append((j, a))
+            neighbors[j].append((i, a))
+
+    return overlap_sum, neighbors
+
+
 @njit
-def jit_overlap_area(xy, r):
+def jit_overlap_area(xy, r, L=0.):
     """Calculate area overlap for each pair of trees.
 
     Parameters
@@ -582,6 +711,8 @@ def jit_overlap_area(xy, r):
         Centers of circles.
     r : ndarray
         Radii of circles.
+    L : float, 0.
+        Domain side length. If >0, use toroidal (periodic) distance.
 
     Returns
     -------
@@ -592,14 +723,17 @@ def jit_overlap_area(xy, r):
     counter = 0
     for i in range(r.size-1):
         for j in range(i+1, r.size):
-            d = np.sqrt((xy[i,0]-xy[j,0])**2 + (xy[i,1]-xy[j,1])**2)
+            d = pair_dist(xy[i], xy[j], L)
             overlapArea[counter] = overlap_area(d, r[i], r[j])
             counter += 1
-   
+
     return overlapArea
 
+# ========================= #
+# Deprecated functions below
+# ========================= #
 @njit
-def jit_overlap_area_avoid_repeat(xy, r, overlapArea, maxd):
+def jit_overlap_area_avoid_repeat(xy, r, overlapArea, maxd, L=0.):
     """Calculate area overlap for each pair of trees. (I think this came out to be slower
     than the simple method).
 
@@ -614,6 +748,8 @@ def jit_overlap_area_avoid_repeat(xy, r, overlapArea, maxd):
         should be ignored.
     maxd : float
         Max distance permissible between two circles before we ignore future calculations.
+    L : float, 0.
+        Domain side length. If >0, use toroidal (periodic) distance.
 
     Returns
     -------
@@ -623,7 +759,7 @@ def jit_overlap_area_avoid_repeat(xy, r, overlapArea, maxd):
     counter = 0
     for i in range(r.size-1):
         for j in range(i+1, r.size):
-            d = np.sqrt((xy[i,0]-xy[j,0])**2 + (xy[i,1]-xy[j,1])**2)
+            d = pair_dist(xy[i], xy[j], L)
 
             # if far apart, avoid calculation
             if d>=maxd:
@@ -631,7 +767,7 @@ def jit_overlap_area_avoid_repeat(xy, r, overlapArea, maxd):
             else:
                 overlapArea[counter] = overlap_area(d, r[i], r[j])
             counter += 1
-   
+
     return overlapArea
 
 @njit
