@@ -60,7 +60,7 @@ class Forest2D():
         self.deadTrees = []  # list of all dead trees
 
         # env fluctuation
-        assert nu>=2
+        assert nu>1
         self.nu = nu
         self.env_rng = PowerLaw(nu)
         
@@ -213,13 +213,13 @@ class Forest2D():
         if xy.ndim==2:
             # calculate overlap area
             _L = self.L if self.bc=='periodic' else 0.
-            overlapArea = jit_overlap_area(xy, r, _L)
+            #overlapArea = jit_overlap_area(xy, r, _L)
             # calculate area overlap using spatial index
-            #overlap_sum, _ = sparse_overlap_area(xy, r, _L)
+            overlap_sum, _ = sparse_overlap_area(xy, r, _L)
 
-            if run_checks:
-                if overlapArea.shape[0] > 1000:
-                    warn("Many trees in sim. Area competition calculation will be slow.")
+            #if run_checks:
+            #    if overlapArea.shape[0] > 1000:
+            #        warn("Many trees in sim. Area competition calculation will be slow.")
 
             # randomly kill trees depending on whether or not below total basal met rate
             killedTreeIx = []
@@ -230,10 +230,10 @@ class Forest2D():
                 # as an indpt pair approx just sum over all overlapping areas
                 # to be precise, one should consider areas where multiple trees overlap as different, but
                 # these correspond to high order interactions
-                #dresource = (area[i] - overlap_sum[i] *
-                #             self.coeffs['sharing fraction']) * self.coeffs['resource efficiency']
-                dresource = (area[i] - overlapArea[row_ix_from_utri(i, r.size)].sum() *
+                dresource = (area[i] - overlap_sum[i] *
                              self.coeffs['sharing fraction']) * self.coeffs['resource efficiency']
+                #dresource = (area[i] - overlapArea[row_ix_from_utri(i, r.size)].sum() *
+                #             self.coeffs['sharing fraction']) * self.coeffs['resource efficiency']
                 if ((self.basalMetRate[tree.size_ix] > (dresource / xi)) and (self.rng.rand() < deathRate)):
                     killedTreeIx.append(i)
 
@@ -654,7 +654,7 @@ def overlap_area(d, r1, r2):
     
     return area
 
-def sparse_overlap_area(xy, r, L=0.):
+def _sparse_overlap_area(xy, r, L=0.):
     """Calculate overlap areas using a spatial index to avoid O(n^2) pair enumeration.
 
     Uses KDTree to find candidate pairs within interaction range, then computes
@@ -700,6 +700,30 @@ def sparse_overlap_area(xy, r, L=0.):
 
     return overlap_sum, neighbors
 
+def sparse_overlap_area(xy, r, L=0.):
+    n = len(r)
+    r_max = r.max()
+    kd = KDTree(xy, boxsize=L) if L > 0. else KDTree(xy)
+
+    dist_mat = kd.sparse_distance_matrix(kd, 2 * r_max, output_type='coo_matrix')
+
+    overlap_sum = np.zeros(n)
+    neighbors = {i: [] for i in range(n)}
+
+    for i, j, d in zip(dist_mat.row, dist_mat.col, dist_mat.data):
+        if j <= i:
+            continue
+        if d >= r[i] + r[j]:
+            continue
+
+        a = overlap_area(d, r[i], r[j])
+        if a > 0:
+            overlap_sum[i] += a
+            overlap_sum[j] += a
+            neighbors[i].append((j, a))
+            neighbors[j].append((i, a))
+
+    return overlap_sum, neighbors
 
 @njit
 def jit_overlap_area(xy, r, L=0.):
