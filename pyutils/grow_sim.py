@@ -344,11 +344,11 @@ class Forest2D():
             trees = []
 
             i = 0
-            counter = 0  # for no. of samples saved
-            while counter < n_sample:
+            counter = 0  # for no. of samples saved, skipping initial condition
+            while counter <= n_sample:
                 # measure every dt, but make sure to account for potential floating point
                 # precision errors
-                if (i - counter * sample_dt / dt + 1e-15)>=0:
+                if counter>0 and (i - counter * sample_dt / dt + 1e-15)>=0:
                     t[counter] = dt * i
                     nk[counter] = self.nk()
                     if return_trees:
