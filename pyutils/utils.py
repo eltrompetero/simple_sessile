@@ -12,7 +12,8 @@ from threadpoolctl import threadpool_limits
 from multiprocess import Pool, cpu_count
 from statsmodels.distributions import ECDF
 import duckdb as db
-from numba import jit, njit
+from numba import jit, njit, types
+from numba.typed import Dict
 
 
 @njit
