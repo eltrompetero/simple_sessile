@@ -84,7 +84,7 @@ def sample_posterior(census_year, kernel_duration=7,
     assert census_year in [1980, 1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020]
     if census_year in [1980, 1985]:
         warnings.warn('The first two surveys (1980, 1985) have badly rounded data.')
-    years = (census_year - 4, census_year + 1)
+    years = (census_year - 6, census_year + 1)
     min_threshold_factor_range = np.logspace(0, 1.5, 35)
     assert 2<=kernel_duration<=14
 
