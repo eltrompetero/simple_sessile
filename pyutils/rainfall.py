@@ -2,7 +2,6 @@
 # Author: Eddie Lee, edlee@csh.ac.at
 import pandas as pd
 import duckdb as db
-from scipy.signal import fftconvolve
 import time
 
 from .posterior import random, init_to_sample, NUTS, MCMC
@@ -91,6 +90,45 @@ def prep_bci_rainfall():
     conn = db.connect(':memory:', read_only=False)
     conn.execute(q)
 
+def exp_smooth_log(datetime_values, ra, decay_timescale, measurement_dt):
+    """Causal exponential smoothing computed exactly in log space (no kernel
+    truncation, no FFT roundoff).
+
+    s(t) = sum_{wet j<=t} ra_j exp(-(t-t_j)/tau) obeys an IIR recursion, and
+    since zero-rain samples contribute nothing,
+    log s(t) = -t/tau + logcumsumexp_{wet j<=t} (log ra_j + t_j/tau),
+    which stays finite for every sample after the first rain (-inf before it).
+    See 'logsumexp rainfall smoothing 2026-08-12.ipynb' for derivation and tests.
+
+    Parameters
+    ----------
+    datetime_values : ndarray of datetime64
+        Sample times (any resolution; gaps in the grid are handled correctly).
+    ra : ndarray
+        Rainfall per sample.
+    decay_timescale : float
+        Decay timescale in days.
+    measurement_dt : float
+        Spacing between measurements in minutes.
+
+    Returns
+    -------
+    ndarray
+        log s at every sample.
+    """
+    dt = np.asarray(datetime_values)
+    t = (dt - dt[0]) / np.timedelta64(60, 's') / measurement_dt
+    tau = decay_timescale * 24 * 60 / measurement_dt  # in samples
+
+    wet = np.flatnonzero(ra > 0)
+    acc = np.logaddexp.accumulate(np.log(ra[wet]) + t[wet]/tau)
+    j = np.searchsorted(t[wet], t, side='right') - 1
+    log_s = np.full(ra.size, -np.inf)
+    ok = j >= 0
+    log_s[ok] = acc[j[ok]] - t[ok]/tau
+    return log_s
+
+
 class BCI_Rainfall:
     """Rainfall data from BCI.
     """
@@ -101,6 +139,7 @@ class BCI_Rainfall:
         self.conn = db.connect(':memory:', read_only=False)
         self.load()
         self.conn.execute('ALTER TABLE rainfall5 ADD COLUMN smoothed_ra DOUBLE;')
+        self.conn.execute('ALTER TABLE rainfall5 ADD COLUMN log_smoothed_ra DOUBLE;')
 
     def load(self):
         """Load rainfall data from parquet file.
@@ -164,7 +203,14 @@ class BCI_Rainfall:
         self.conn.execute(q)
 
     def smooth_rainfall_exp(self, decay_timescale, measurement_dt=None):
-        """Smooth rainfall trajectory with exponential kernel.
+        """Smooth rainfall trajectory with a causal exponential kernel, computed
+        exactly in log space (no kernel truncation, no FFT roundoff).
+
+        Since s[n] = sum_{k>=0} ra[n-k] exp(-k/tau) and zero-rain samples
+        contribute nothing, log s(t) = -t/tau + logcumsumexp_{wet j<=t}
+        (log ra_j + t_j/tau), which stays finite for every sample after the
+        record's first rain. Writes log_smoothed_ra and, consistently,
+        smoothed_ra = exp(log_smoothed_ra) (0 before the first rain).
 
         Parameters
         ----------
@@ -172,27 +218,23 @@ class BCI_Rainfall:
             Decay timescale in days that goes into exponential kernel.
         measurement_dt : float, 5
             Spacing between measurements in minutes.
-
-        Returns
-        -------
-        np.ndarray
         """
         measurement_dt = measurement_dt or self.DT
-        ra = self.conn.execute('select ra from rainfall5').fetchdf()['ra'].values.ravel()
         if decay_timescale==0:
             raise NotImplementedError('Decay timescale cannot be 0.')
-            
-        decay_timescale *= 24 * 60  # convert into minutes
-        
-        kernel = np.zeros(int(decay_timescale//measurement_dt * 4 * 2 + 1))
-        kernel[kernel.size//2:] += np.exp(-np.arange(kernel.size//2+1)/(decay_timescale/measurement_dt))
-        smoothed_ra = pd.DataFrame({'datetime':self.conn.execute('select datetime from rainfall5').fetchdf().values.ravel(),
-                                    'ra':fftconvolve(ra, kernel, mode='same')})
+
+        df = self.conn.execute('select datetime, ra from rainfall5 order by datetime').fetchdf()
+        log_s = exp_smooth_log(df['datetime'].values, df['ra'].values.ravel(),
+                               decay_timescale, measurement_dt)
+        smoothed = pd.DataFrame({'datetime': df['datetime'].values,
+                                 'log_ra': log_s,
+                                 'ra': np.exp(log_s)})
         q = f'''
             UPDATE rainfall5
-            SET smoothed_ra = smoothed_ra.ra
-            FROM smoothed_ra
-            WHERE rainfall5.datetime = smoothed_ra.datetime
+            SET smoothed_ra = smoothed.ra,
+                log_smoothed_ra = smoothed.log_ra
+            FROM smoothed
+            WHERE rainfall5.datetime = smoothed.datetime
             '''
         self.conn.execute(q)
 
@@ -230,7 +272,7 @@ class BCI_Rainfall:
         
         q = f'''
             SELECT *
-            FROM (SELECT datetime, year, ra, smoothed_ra
+            FROM (SELECT datetime, year, ra, smoothed_ra, log_smoothed_ra
                 FROM rainfall5)
             WHERE year>={years[0]} AND year<{years[1]}
             ORDER BY datetime
@@ -257,6 +299,7 @@ class SCBI_Rainfall:
         self.conn = db.connect(':memory:', read_only=False)
         self.load()
         self.conn.execute('ALTER TABLE rainfall5 ADD COLUMN smoothed_ra DOUBLE;')
+        self.conn.execute('ALTER TABLE rainfall5 ADD COLUMN log_smoothed_ra DOUBLE;')
 
     def load(self):
         """Load rainfall data from NEON 1-minute CSVs.
@@ -309,7 +352,9 @@ class SCBI_Rainfall:
         self.conn.execute(q)
 
     def smooth_rainfall_exp(self, decay_timescale, measurement_dt=None):
-        """Smooth rainfall trajectory with exponential kernel.
+        """Smooth rainfall trajectory with a causal exponential kernel, computed
+        exactly in log space (see exp_smooth_log). Writes log_smoothed_ra and,
+        consistently, smoothed_ra = exp(log_smoothed_ra).
 
         Parameters
         ----------
@@ -317,27 +362,23 @@ class SCBI_Rainfall:
             Decay timescale in days that goes into exponential kernel.
         measurement_dt : float, 5
             Spacing between measurements in minutes.
-
-        Returns
-        -------
-        np.ndarray
         """
         measurement_dt = measurement_dt or self.DT
-        ra = self.conn.execute('select ra from rainfall5').fetchdf()['ra'].values.ravel()
         if decay_timescale==0:
             raise NotImplementedError('Decay timescale cannot be 0.')
 
-        decay_timescale *= 24 * 60  # convert into minutes
-
-        kernel = np.zeros(int(decay_timescale//measurement_dt * 4 * 2 + 1))
-        kernel[kernel.size//2:] += np.exp(-np.arange(kernel.size//2+1)/(decay_timescale/measurement_dt))
-        smoothed_ra = pd.DataFrame({'datetime':self.conn.execute('select datetime from rainfall5').fetchdf().values.ravel(),
-                                    'ra':fftconvolve(ra, kernel, mode='same')})
+        df = self.conn.execute('select datetime, ra from rainfall5 order by datetime').fetchdf()
+        log_s = exp_smooth_log(df['datetime'].values, df['ra'].values.ravel(),
+                               decay_timescale, measurement_dt)
+        smoothed = pd.DataFrame({'datetime': df['datetime'].values,
+                                 'log_ra': log_s,
+                                 'ra': np.exp(log_s)})
         q = f'''
             UPDATE rainfall5
-            SET smoothed_ra = smoothed_ra.ra
-            FROM smoothed_ra
-            WHERE rainfall5.datetime = smoothed_ra.datetime
+            SET smoothed_ra = smoothed.ra,
+                log_smoothed_ra = smoothed.log_ra
+            FROM smoothed
+            WHERE rainfall5.datetime = smoothed.datetime
             '''
         self.conn.execute(q)
 
@@ -375,7 +416,7 @@ class SCBI_Rainfall:
 
         q = f'''
             SELECT *
-            FROM (SELECT datetime, year, ra, smoothed_ra
+            FROM (SELECT datetime, year, ra, smoothed_ra, log_smoothed_ra
                 FROM rainfall5)
             WHERE year>={years[0]} AND year<{years[1]}
             ORDER BY datetime
