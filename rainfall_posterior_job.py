@@ -60,7 +60,7 @@ def sample_posterior(census_year, kernel_duration=7,
 
     Unlike the notebook version, the census interval is derived from census_year
     instead of relying on a global `years`. The census year is the last year of
-    the interval: years = (census_year-4, census_year+1), range() convention.
+    the interval: years = (census_year-6, census_year+1), range() convention.
 
     Parameters
     ----------
@@ -88,15 +88,16 @@ def sample_posterior(census_year, kernel_duration=7,
     min_threshold_factor_range = np.logspace(0, 1.5, 35)
     assert 2<=kernel_duration<=14
 
-    # rainfall preprocessing
+    # rainfall preprocessing; smoothing is now exact in log space, so smoothed_ra
+    # is finite and positive for every sample after the record's first rain and no
+    # upper truncation of ira is needed -- ra>0 only guards the rare exact zeros
     bci_rainfall.smooth_rainfall_exp(kernel_duration)
     df = bci_rainfall.by_year(years)
     ra = df['smoothed_ra'].values.ravel()
-    ecdf = ECDF(1/ra[ra>=1e-2])  # throwing out zeros
+    ecdf = ECDF(1/ra[ra>0])
 
     # inverse rainfall
-    ira = 1/ra[ra>0]  # ignoring infinities
-    ira = ira[(ira>0)&(ira<1e6)]
+    ira = 1/ra[ra>0]
     lc_f = detect_lower_cutoff(ira, min_threshold_factor_range)
     x0 = ira.min() * lc_f
     ira = ira[ira>=x0]
@@ -118,8 +119,10 @@ def sample_posterior(census_year, kernel_duration=7,
                        progress_bar=False)
     mcmc_kwargs.update(mcmc_settings)
 
-    key, subkey = random.split(key)
-    sample = collect_rainfall_sample(tpl, random.choice(subkey, ira, shape=(40_000,)), 1,
+    # fit the full sample: the deep-drought tail holds only tens of samples, so a
+    # 40k subsample sees it by luck; the key now seeds the chains (reproducible)
+    sample = collect_rainfall_sample(tpl, jnp.array(ira), 1,
+                                     key=key,
                                      iprint=iprint,
                                      **mcmc_kwargs)
 
